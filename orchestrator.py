@@ -13,6 +13,7 @@ a Pydantic model (defined in core/schemas.py).
 """
 
 import time
+from typing import Optional, Callable
 from core.schemas import (
     UserInput,
     BugReport,
@@ -46,7 +47,17 @@ class Orchestrator:
         report = orch.run("def slow_func(): ...")
     """
 
-    def run(self, source_code: str, description: str = None) -> FinalReport:
+    def _emit_log(self, message: str, on_log: Optional[Callable] = None):
+        """Emit a log line to the callback (for streaming) and to stdout."""
+        print(f"[Pipeline] {message}")
+        if on_log:
+            try:
+                on_log(message)
+            except Exception:
+                pass
+
+    def run(self, source_code: str, description: str = None,
+            on_log: Optional[Callable] = None) -> FinalReport:
         """
         Execute the full 4-agent pipeline.
         
@@ -67,6 +78,7 @@ class Orchestrator:
         print("=" * 60)
         print("🏗️  STAGE 1: Architecture Analysis")
         print("=" * 60)
+        self._emit_log("Stage 1/6: Architect Agent — AST analysis starting", on_log)
         try:
             architect_report: ArchitectReport = analyze_architecture(user_input)
             print(f"   → Found {architect_report.total_functions} functions. Most complex: {architect_report.most_complex_function}")
@@ -76,10 +88,12 @@ class Orchestrator:
                 architecture_summary=f"Architecture analysis failed: {str(e)}"
             )
         stages_completed.append("architecture_analysis")
+        self._emit_log("Stage 1/6: Architect Agent — complete", on_log)
 
         print("\n" + "=" * 60)
         print("🔐 STAGE 2: Security Scan")
         print("=" * 60)
+        self._emit_log("Stage 2/6: Security Agent — scanning for vulnerabilities", on_log)
         try:
             security_report: SecurityReport = scan_security(user_input, architect_report)
             print(f"   → Security score: {security_report.security_score}/100. Issues: {len(security_report.issues)}")
@@ -90,6 +104,7 @@ class Orchestrator:
                 summary=f"Security scan failed: {str(e)}"
             )
         stages_completed.append("security_scan")
+        self._emit_log("Stage 2/6: Security Agent — complete", on_log)
 
         # ── RAG Retrieval (runs before agents to provide context) ────────────
         print("  [RAG] Searching knowledge base for similar past fixes...")
@@ -103,6 +118,7 @@ class Orchestrator:
         print("\n" + "=" * 60)
         print("🔍 STAGE 3: Bug Detection")
         print("=" * 60)
+        self._emit_log("Stage 3/6: Bug Detector — Gemini analysis starting", on_log)
         try:
             bug_report: BugReport = detect_bugs(user_input)
         except Exception as e:
@@ -115,10 +131,12 @@ class Orchestrator:
             )
         print(f"   → Found {len(bug_report.bugs)} issues (score: {bug_report.bug_score}/100)")
         stages_completed.append("bug_detection")
+        self._emit_log("Stage 3/6: Bug Detector — complete", on_log)
 
         print("\n" + "=" * 60)
         print("⚡ STAGE 4: Performance Analysis")
         print("=" * 60)
+        self._emit_log("Stage 4/6: Performance Analyzer — executing code + measuring", on_log)
         try:
             perf_report: PerformanceReport = analyze_performance(user_input)
         except Exception as e:
@@ -129,10 +147,12 @@ class Orchestrator:
         print(f"   → Runtime: {perf_report.execution_time_ms}ms")
         print(f"   → Complexity: {perf_report.time_complexity}")
         stages_completed.append("performance_analysis")
+        self._emit_log("Stage 4/6: Performance Analyzer — complete", on_log)
 
         print("\n" + "=" * 60)
         print("🔧 STAGE 5: Optimization")
         print("=" * 60)
+        self._emit_log("Stage 5/6: Optimizer — generating optimized code via Gemini", on_log)
         try:
             optimization: OptimizationResult = optimize_code(
                 user_input=user_input,
@@ -149,15 +169,29 @@ class Orchestrator:
         print(f"   → Changes: {len(optimization.changes_made)}")
         print(f"   → Expected: {optimization.expected_improvement}")
         stages_completed.append("optimization")
+        self._emit_log("Stage 5/6: Optimizer — complete", on_log)
 
         print("\n" + "=" * 60)
         print("✅ STAGE 6: Validation")
         print("=" * 60)
+        self._emit_log("Stage 6/6: Validator — running both code versions for comparison", on_log)
+        baseline_resources = None
+        optimized_resources = None
         try:
-            validation: ValidationResult = validate_optimization(
+            validator_output = validate_optimization(
                 original_code=user_input.source_code,
                 optimized_code=optimization.optimized_code,
             )
+            if isinstance(validator_output, dict):
+                validation = validator_output["validation"]
+                baseline_resources = validator_output.get("baseline_resources")
+                optimized_resources = validator_output.get("optimized_resources")
+                exec_stdout = getattr(validation, "original_output", None)
+                if exec_stdout and on_log:
+                    for line in exec_stdout.splitlines():
+                        self._emit_log(f"[Sandbox stdout] {line}", on_log)
+            else:
+                validation = validator_output
         except Exception as e:
             print(f"   Validator failed: {e}")
             validation = ValidationResult(
@@ -170,6 +204,7 @@ class Orchestrator:
             print(f"   → Speedup: {validation.speedup_percentage:.1f}%")
         print(f"   → Outputs match: {validation.outputs_match}")
         stages_completed.append("validation")
+        self._emit_log("Stage 6/6: Validator — complete", on_log)
 
         # ── Learning Event (runs after validation) ───────────────────────────
         try:
@@ -212,6 +247,12 @@ class Orchestrator:
             )
         except Exception as e:
             print(f"[Orchestrator] DNA computation skipped: {e}")
+
+        # Attach resource timelines
+        report.baseline_resources = baseline_resources
+        report.optimized_resources = optimized_resources
+
+        self._emit_log("Pipeline complete — Final report ready", on_log)
 
         print("\n" + "=" * 60)
         print("📊 ANALYSIS COMPLETE")

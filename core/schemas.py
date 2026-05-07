@@ -11,7 +11,7 @@ Pipeline flow:
 """
 
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Optional, List, Dict
 from enum import Enum
 
 
@@ -36,6 +36,41 @@ class UserInput(BaseModel):
     source_code: str = Field(..., description="The Python code to analyze")
     language: str = Field(default="python", description="Programming language (python only for MVP)")
     description: Optional[str] = Field(default=None, description="Optional: what the code is supposed to do")
+
+
+# ─── Architect Agent Output ─────────────────────────────
+
+class FunctionInfo(BaseModel):
+    name: str
+    calls: List[str] = []
+    complexity: str = "unknown"
+
+
+class ArchitectReport(BaseModel):
+    functions_found: List[FunctionInfo] = []
+    dependency_map: Dict[str, List[str]] = {}
+    most_complex_function: str = ""
+    total_functions: int = 0
+    architecture_summary: str = ""
+
+
+# ─── Security Agent Output ───────────────────────────────
+
+class SecurityIssue(BaseModel):
+    severity: str
+    issue_type: str
+    line_number: int = 0
+    description: str
+    recommendation: str
+
+
+class SecurityReport(BaseModel):
+    security_score: int = 100
+    issues: List[SecurityIssue] = []
+    has_critical_issues: bool = False
+    bandit_issues_count: int = 0
+    llm_issues_count: int = 0
+    summary: str = ""
 
 
 # ─── Bug Detector Output ────────────────────────────────
@@ -99,6 +134,8 @@ class ValidationResult(BaseModel):
 class FinalReport(BaseModel):
     """The complete analysis report shown to the user."""
     source_code: str
+    architect_report: Optional[ArchitectReport] = None
+    security_report: Optional[SecurityReport] = None
     bug_report: BugReport
     performance_report: PerformanceReport
     optimization: OptimizationResult

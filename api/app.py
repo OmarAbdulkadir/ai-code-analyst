@@ -25,7 +25,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
+# Strip any path suffix (e.g. /rest/v1/) — SDK needs bare project URL
+_base_url = SUPABASE_URL.split("/rest/")[0].split("/auth/")[0].rstrip("/") if SUPABASE_URL else ""
+supabase: Client = create_client(_base_url, SUPABASE_ANON_KEY)
 
 class AnalyzeRequest(BaseModel):
     code: str

@@ -142,4 +142,4 @@ class FinalReport(BaseModel):
     validation: ValidationResult
     optimized_code: str
     overall_summary: str = Field(..., description="Executive summary of the full analysis")
-    stages_completed: list[str] = []
+    stages_completed: List[str] = []

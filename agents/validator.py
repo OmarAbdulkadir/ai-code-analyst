@@ -17,28 +17,92 @@ dangerous code cannot affect the host system.
 This is what makes our project different from ChatGPT — we PROVE the improvement.
 """
 
-from core.schemas import ValidationResult, ValidationStatus
+import os
+import threading
+import time
+
+import psutil
+
+from core.schemas import ValidationResult, ValidationStatus, ResourceSample, ResourceTimeline
 from core.config import SANDBOX_TIMEOUT_SECONDS
 from core.code_executor import execute_code
+from typing import Optional
+
+
+def _collect_resource_timeline(pid: int, stop_event: threading.Event,
+                               interval_ms: float = 100.0) -> list:
+    """Poll psutil for the given PID every interval_ms until stop_event is set."""
+    samples = []
+    start = time.monotonic()
+    try:
+        proc = psutil.Process(pid)
+    except psutil.NoSuchProcess:
+        return samples
+
+    while not stop_event.is_set():
+        try:
+            cpu = proc.cpu_percent(interval=None)
+            mem = proc.memory_info().rss / (1024 * 1024)
+            elapsed = (time.monotonic() - start) * 1000
+            samples.append(ResourceSample(
+                elapsed_ms=round(elapsed, 1),
+                cpu_percent=round(cpu, 2),
+                memory_mb=round(mem, 2),
+            ))
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            break
+        time.sleep(interval_ms / 1000.0)
+    return samples
+
+
+def _run_with_timeline(code: str) -> tuple:
+    """Run execute_code() and collect a ResourceTimeline in parallel."""
+    stop_event = threading.Event()
+    samples_container = []
+    monitor_pid = os.getpid()
+
+    def monitor():
+        samples_container.extend(
+            _collect_resource_timeline(monitor_pid, stop_event, interval_ms=100.0)
+        )
+
+    t = threading.Thread(target=monitor, daemon=True)
+    t.start()
+
+    result = execute_code(code)
+
+    stop_event.set()
+    t.join(timeout=2.0)
+
+    if len(samples_container) < 2:
+        return result, None
+
+    timeline = ResourceTimeline(
+        samples=samples_container,
+        peak_cpu_percent=max(s.cpu_percent for s in samples_container),
+        peak_memory_mb=max(s.memory_mb for s in samples_container),
+        sample_interval_ms=100.0,
+    )
+    return result, timeline
 
 
 def validate_optimization(
     original_code: str,
     optimized_code: str,
     num_runs: int = 3,
-) -> ValidationResult:
+) -> dict:
     """
     Run both original and optimized code, compare results.
 
-    Args:
-        original_code: The user's original Python code
-        optimized_code: The optimizer's improved version
-        num_runs: Number of times to run each for reliable timing
-
     Returns:
-        ValidationResult with comparison metrics
+        dict with keys: "validation" (ValidationResult), "baseline_resources",
+        "optimized_resources" (ResourceTimeline or None)
     """
-    # Run original code
+    # Collect resource timelines (one monitoring run each)
+    _, baseline_timeline = _run_with_timeline(original_code)
+    _, optimized_timeline = _run_with_timeline(optimized_code)
+
+    # Run original code (3x for reliable timing)
     orig_result = _run_multiple(original_code, num_runs)
 
     # Run optimized code
@@ -47,30 +111,42 @@ def validate_optimization(
     # ─── Handle execution failures ───────────────────────
     
     if not orig_result["success"] and not opt_result["success"]:
-        return ValidationResult(
-            status=ValidationStatus.REJECTED,
-            summary=f"Both versions failed. Original: {orig_result['error']}. Optimized: {opt_result['error']}",
-            outputs_match=False,
-        )
+        return {
+            "validation": ValidationResult(
+                status=ValidationStatus.REJECTED,
+                summary=f"Both versions failed. Original: {orig_result['error']}. Optimized: {opt_result['error']}",
+                outputs_match=False,
+            ),
+            "baseline_resources": baseline_timeline,
+            "optimized_resources": optimized_timeline,
+        }
 
     if not opt_result["success"]:
-        return ValidationResult(
-            status=ValidationStatus.REJECTED,
-            original_time_ms=orig_result["avg_time_ms"],
-            original_output=orig_result["output"],
-            summary=f"Optimized code failed to execute: {opt_result['error']}",
-            outputs_match=False,
-        )
+        return {
+            "validation": ValidationResult(
+                status=ValidationStatus.REJECTED,
+                original_time_ms=orig_result["avg_time_ms"],
+                original_output=orig_result["output"],
+                summary=f"Optimized code failed to execute: {opt_result['error']}",
+                outputs_match=False,
+            ),
+            "baseline_resources": baseline_timeline,
+            "optimized_resources": optimized_timeline,
+        }
 
     if not orig_result["success"]:
         # Original fails but optimized works — that's a bug fix!
-        return ValidationResult(
-            status=ValidationStatus.APPROVED,
-            optimized_time_ms=opt_result["avg_time_ms"],
-            optimized_output=opt_result["output"],
-            summary=f"Original code had errors. Optimized code runs successfully in {opt_result['avg_time_ms']:.1f}ms.",
-            outputs_match=False,
-        )
+        return {
+            "validation": ValidationResult(
+                status=ValidationStatus.APPROVED,
+                optimized_time_ms=opt_result["avg_time_ms"],
+                optimized_output=opt_result["output"],
+                summary=f"Original code had errors. Optimized code runs successfully in {opt_result['avg_time_ms']:.1f}ms.",
+                outputs_match=False,
+            ),
+            "baseline_resources": baseline_timeline,
+            "optimized_resources": optimized_timeline,
+        }
 
     # ─── Compare outputs ─────────────────────────────────
     
@@ -115,16 +191,20 @@ def validate_optimization(
             f"({orig_time:.1f}ms vs {opt_time:.1f}ms). Outputs match."
         )
 
-    return ValidationResult(
-        status=status,
-        original_time_ms=round(orig_time, 2),
-        optimized_time_ms=round(opt_time, 2),
-        speedup_percentage=round(speedup, 2) if speedup > 0 else None,
-        original_output=orig_result["output"][:500],  # Truncate for safety
-        optimized_output=opt_result["output"][:500],
-        outputs_match=outputs_match,
-        summary=summary,
-    )
+    return {
+        "validation": ValidationResult(
+            status=status,
+            original_time_ms=round(orig_time, 2),
+            optimized_time_ms=round(opt_time, 2),
+            speedup_percentage=round(speedup, 2) if speedup > 0 else None,
+            original_output=orig_result["output"][:500],
+            optimized_output=opt_result["output"][:500],
+            outputs_match=outputs_match,
+            summary=summary,
+        ),
+        "baseline_resources": baseline_timeline,
+        "optimized_resources": optimized_timeline,
+    }
 
 
 def _run_multiple(code: str, num_runs: int = 3) -> dict:

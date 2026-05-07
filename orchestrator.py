@@ -202,6 +202,17 @@ class Orchestrator:
             stages_completed=stages_completed,
         )
 
+        # Attach DNA fingerprints
+        try:
+            report.baseline_dna = self._compute_dna(
+                bug_report, perf_report, validation, label="Baseline", is_optimized=False
+            )
+            report.optimized_dna = self._compute_dna(
+                bug_report, perf_report, validation, label="Optimized", is_optimized=True
+            )
+        except Exception as e:
+            print(f"[Orchestrator] DNA computation skipped: {e}")
+
         print("\n" + "=" * 60)
         print("📊 ANALYSIS COMPLETE")
         print("=" * 60)
@@ -243,6 +254,48 @@ class Orchestrator:
             parts.append("No significant performance change detected.")
 
         return " ".join(parts)
+
+    def _compute_dna(
+        self,
+        bug_report,
+        perf_report,
+        validation_result,
+        label: str,
+        is_optimized: bool = False
+    ):
+        from core.schemas import CodeDNAFingerprint
+        import math
+
+        complexity_map = {"O(1)": 95, "O(log n)": 88, "O(n)": 75,
+                          "O(n log n)": 60, "O(n^2)": 35, "O(n^3)": 15}
+        complexity = float(complexity_map.get(
+            getattr(perf_report, "time_complexity", "O(n)"), 60
+        ))
+
+        security = max(0.0, 100.0 - float(bug_report.bug_score) * 0.5)
+        if bug_report.has_critical_bugs:
+            security = min(security, 40.0)
+
+        t = getattr(perf_report, "execution_time_ms", 1000.0) or 1000.0
+        performance = max(0.0, min(100.0, 100.0 - (t / 50.0)))
+
+        readability = 70.0
+
+        bug_density = max(0.0, 100.0 - float(bug_report.bug_score))
+
+        sp = getattr(validation_result, "speedup_percentage", 0.0) or 0.0
+        optimization = max(0.0, min(100.0, 50.0 + sp * 0.5)) if not is_optimized else \
+                       max(0.0, min(100.0, 50.0 + sp))
+
+        return CodeDNAFingerprint(
+            complexity=round(complexity, 1),
+            security=round(security, 1),
+            performance=round(performance, 1),
+            readability=round(readability, 1),
+            bug_density=round(bug_density, 1),
+            optimization=round(optimization, 1),
+            label=label,
+        )
 
 
 # ─── Quick test ──────────────────────────────────────────

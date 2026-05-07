@@ -1,0 +1,205 @@
+{
+  "source_code": "# Sample 1: Classic O(n^2) duplicate finder\n# Expected: Optimizer should replace with set-based O(n) approach\n\ndef find_duplicates(lst):\n    duplicates = []\n    for i in range(len(lst)):\n        for j in range(i + 1, len(lst)):\n            if lst[i] == lst[j] and lst[i] not in duplicates:\n                duplicates.append(lst[i])\n    return duplicates\n\nprint(find_duplicates([1, 2, 3, 2, 4, 5, 1, 6, 7, 5]))\n",
+  "architect_report": {
+    "functions_found": [
+      {
+        "name": "find_duplicates",
+        "calls": [],
+        "complexity": "medium"
+      }
+    ],
+    "dependency_map": {
+      "find_duplicates": []
+    },
+    "most_complex_function": "find_duplicates",
+    "total_functions": 1,
+    "architecture_summary": "Architecture analysis completed. 1 functions found."
+  },
+  "security_report": {
+    "security_score": 100,
+    "issues": [],
+    "has_critical_issues": false,
+    "bandit_issues_count": 0,
+    "llm_issues_count": 0,
+    "summary": "No security issues detected."
+  },
+  "rag_context": {
+    "matches_found": 3,
+    "top_matches": [
+      {
+        "original_code_snippet": "# Sample 1: Classic O(n^2) duplicate finder\n# Expected: Optimizer should replace with set-based O(n) approach\n\ndef find_duplicates(lst):\n    duplicates = []\n    for i in range(len(lst)):\n        for j in range(i + 1, len(lst)):\n            if lst[i] == lst[j] and lst[i] not in duplicates:\n                duplicates.append(lst[i])\n    return duplicates\n\nprint(find_duplicates([1, 2, 3, 2, 4, 5, 1, 6, 7, 5]))\n",
+        "optimized_code_snippet": "# Sample 1: Classic O(n^2) duplicate finder\n# Expected: Optimizer should replace with set-based O(n) approach\n\ndef find_duplicates(lst):\n    duplicates = []\n    for i in range(len(lst)):\n        for j in range(i + 1, len(lst)):\n            if lst[i] == lst[j] and lst[i] not in duplicates:\n                duplicates.append(lst[i])\n    return duplicates\n\nprint(find_duplicates([1, 2, 3, 2, 4, 5, 1, 6, 7, 5]))\n",
+        "speedup_percentage": 15.05,
+        "similarity_score": 1.0,
+        "bug_types_fixed": []
+      },
+      {
+        "original_code_snippet": "for i in range(n):\n    for j in range(n):\n        result += i*j",
+        "optimized_code_snippet": "result = sum(i*j for i in range(n) for j in range(n))",
+        "speedup_percentage": 45.0,
+        "similarity_score": 0.717,
+        "bug_types_fixed": [
+          "nested_loop"
+        ]
+      },
+      {
+        "original_code_snippet": "for i in range(n):\n    for j in range(n):\n        x += i",
+        "optimized_code_snippet": "x = sum(i for i in range(n)) * n",
+        "speedup_percentage": 35.0,
+        "similarity_score": 0.693,
+        "bug_types_fixed": []
+      }
+    ],
+    "retrieval_summary": "Found 3 similar past optimization(s) (similarity >= 0.5)."
+  },
+  "bug_report": {
+    "bug_score": 0,
+    "bugs": [],
+    "summary": "Bug detection failed: Error code: 401 - {'error': {'message': 'Missing Authentication header', 'code': 401}}",
+    "has_critical_bugs": false
+  },
+  "performance_report": {
+    "execution_time_ms": 706.005,
+    "memory_usage_mb": 0.0004,
+    "time_complexity": "O(n^2)",
+    "space_complexity": "O(n)",
+    "bottlenecks": [
+      "Nested loop at line 6"
+    ],
+    "executed_successfully": true,
+    "execution_error": null,
+    "summary": "Code has O(n^2) time complexity."
+  },
+  "optimization": {
+    "optimized_code": "# Sample 1: Classic O(n^2) duplicate finder\n# Expected: Optimizer should replace with set-based O(n) approach\n\ndef find_duplicates(lst):\n    duplicates = []\n    for i in range(len(lst)):\n        for j in range(i + 1, len(lst)):\n            if lst[i] == lst[j] and lst[i] not in duplicates:\n                duplicates.append(lst[i])\n    return duplicates\n\nprint(find_duplicates([1, 2, 3, 2, 4, 5, 1, 6, 7, 5]))\n",
+    "changes_made": [],
+    "expected_improvement": "Optimization failed: Error code: 401 - {'error': {'message': 'Missing Authentication header', 'code': 401}}"
+  },
+  "validation": {
+    "status": "unchanged",
+    "original_time_ms": 715.41,
+    "optimized_time_ms": 745.0,
+    "speedup_percentage": null,
+    "original_output": "[1, 2, 5]",
+    "optimized_output": "[1, 2, 5]",
+    "outputs_match": true,
+    "summary": "UNCHANGED: No significant performance difference (715.4ms vs 745.0ms). Outputs match."
+  },
+  "optimized_code": "# Sample 1: Classic O(n^2) duplicate finder\n# Expected: Optimizer should replace with set-based O(n) approach\n\ndef find_duplicates(lst):\n    duplicates = []\n    for i in range(len(lst)):\n        for j in range(i + 1, len(lst)):\n            if lst[i] == lst[j] and lst[i] not in duplicates:\n                duplicates.append(lst[i])\n    return duplicates\n\nprint(find_duplicates([1, 2, 3, 2, 4, 5, 1, 6, 7, 5]))\n",
+  "overall_summary": "No bugs detected. Original runtime: 706.0ms (O(n^2)). No significant performance change detected.",
+  "stages_completed": [
+    "architecture_analysis",
+    "security_scan",
+    "bug_detection",
+    "performance_analysis",
+    "optimization",
+    "validation"
+  ],
+  "baseline_dna": {
+    "complexity": 35.0,
+    "security": 100.0,
+    "performance": 85.9,
+    "readability": 70.0,
+    "bug_density": 100.0,
+    "optimization": 50.0,
+    "label": "Baseline"
+  },
+  "optimized_dna": {
+    "complexity": 35.0,
+    "security": 100.0,
+    "performance": 85.9,
+    "readability": 70.0,
+    "bug_density": 100.0,
+    "optimization": 50.0,
+    "label": "Optimized"
+  },
+  "baseline_resources": {
+    "samples": [
+      {
+        "elapsed_ms": 0.9,
+        "cpu_percent": 0.0,
+        "memory_mb": 912.67
+      },
+      {
+        "elapsed_ms": 101.3,
+        "cpu_percent": 0.0,
+        "memory_mb": 912.67
+      },
+      {
+        "elapsed_ms": 201.7,
+        "cpu_percent": 10.0,
+        "memory_mb": 912.68
+      },
+      {
+        "elapsed_ms": 302.0,
+        "cpu_percent": 0.0,
+        "memory_mb": 912.68
+      },
+      {
+        "elapsed_ms": 402.4,
+        "cpu_percent": 0.0,
+        "memory_mb": 912.68
+      },
+      {
+        "elapsed_ms": 502.9,
+        "cpu_percent": 0.0,
+        "memory_mb": 912.68
+      },
+      {
+        "elapsed_ms": 603.3,
+        "cpu_percent": 0.0,
+        "memory_mb": 912.68
+      }
+    ],
+    "peak_cpu_percent": 10.0,
+    "peak_memory_mb": 912.68,
+    "sample_interval_ms": 100.0
+  },
+  "optimized_resources": {
+    "samples": [
+      {
+        "elapsed_ms": 0.8,
+        "cpu_percent": 0.0,
+        "memory_mb": 912.68
+      },
+      {
+        "elapsed_ms": 101.2,
+        "cpu_percent": 0.0,
+        "memory_mb": 912.68
+      },
+      {
+        "elapsed_ms": 201.7,
+        "cpu_percent": 0.0,
+        "memory_mb": 912.68
+      },
+      {
+        "elapsed_ms": 302.1,
+        "cpu_percent": 0.0,
+        "memory_mb": 912.68
+      },
+      {
+        "elapsed_ms": 402.6,
+        "cpu_percent": 0.0,
+        "memory_mb": 912.68
+      },
+      {
+        "elapsed_ms": 503.2,
+        "cpu_percent": 0.0,
+        "memory_mb": 912.68
+      },
+      {
+        "elapsed_ms": 603.9,
+        "cpu_percent": 0.0,
+        "memory_mb": 912.68
+      },
+      {
+        "elapsed_ms": 704.3,
+        "cpu_percent": 0.0,
+        "memory_mb": 912.68
+      }
+    ],
+    "peak_cpu_percent": 0.0,
+    "peak_memory_mb": 912.68,
+    "sample_interval_ms": 100.0
+  }
+}

@@ -23,7 +23,10 @@ from core.schemas import (
     FinalReport,
     ArchitectReport,
     SecurityReport,
+    RAGContext,
 )
+from rag.retriever import retrieve_similar
+from rag.learning_engine import trigger_learning_event
 
 # Import agents — each teammate implements their own
 from agents.architect_agent import analyze_architecture
@@ -87,6 +90,15 @@ class Orchestrator:
                 summary=f"Security scan failed: {str(e)}"
             )
         stages_completed.append("security_scan")
+
+        # ── RAG Retrieval (runs before agents to provide context) ────────────
+        print("  [RAG] Searching knowledge base for similar past fixes...")
+        try:
+            rag_context = retrieve_similar(user_input.source_code, top_k=3)
+            print(f"       {rag_context.retrieval_summary}")
+        except Exception as e:
+            print(f"       RAG retrieval failed: {e}")
+            rag_context = RAGContext(retrieval_summary=f"RAG unavailable: {str(e)}")
 
         print("\n" + "=" * 60)
         print("🔍 STAGE 3: Bug Detection")
@@ -159,6 +171,17 @@ class Orchestrator:
         print(f"   → Outputs match: {validation.outputs_match}")
         stages_completed.append("validation")
 
+        # ── Learning Event (runs after validation) ───────────────────────────
+        try:
+            trigger_learning_event(
+                original_code=user_input.source_code,
+                optimized_code=optimization.optimized_code,
+                validation_result=validation,
+                bug_report=bug_report,
+            )
+        except Exception as e:
+            print(f"  [RAG] Learning event error (non-critical): {e}")
+
         # ─── Build Final Report ──────────────────────────────
 
         overall_summary = self._build_summary(
@@ -169,6 +192,7 @@ class Orchestrator:
             source_code=source_code,
             architect_report=architect_report,
             security_report=security_report,
+            rag_context=rag_context,
             bug_report=bug_report,
             performance_report=perf_report,
             optimization=optimization,

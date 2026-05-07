@@ -30,6 +30,11 @@ PORT = int(os.getenv("PORT", "8000"))
 SANDBOX_TIMEOUT_SECONDS = int(os.getenv("SANDBOX_TIMEOUT", "10"))
 SANDBOX_MEMORY_LIMIT_MB = int(os.getenv("SANDBOX_MEMORY_LIMIT", "128"))
 
+# ─── Supabase ────────────────────────────────────────────
+
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY")
+
 # ─── Validation ──────────────────────────────────────────
 
 if not GEMINI_API_KEY:

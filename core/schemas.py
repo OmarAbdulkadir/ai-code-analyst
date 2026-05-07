@@ -13,6 +13,7 @@ Pipeline flow:
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict
 from enum import Enum
+from datetime import datetime
 
 
 # ─── Enums ───────────────────────────────────────────────
@@ -198,3 +199,25 @@ class FinalReport(BaseModel):
     optimized_dna: Optional[CodeDNAFingerprint] = None
     baseline_resources: Optional[ResourceTimeline] = None
     optimized_resources: Optional[ResourceTimeline] = None
+    user_id: Optional[str] = None  # set by API layer, not orchestrator
+
+
+# ─── Auth / History Models (Module 4) ───────────────────
+
+class SessionRecord(BaseModel):
+    """Represents one saved analysis session stored in Supabase."""
+    id: Optional[str] = None
+    user_id: str
+    created_at: Optional[datetime] = None
+    source_code: str
+    final_report: dict  # serialized FinalReport
+
+
+class UserStats(BaseModel):
+    """Aggregated stats shown on the user dashboard."""
+    total_sessions: int
+    total_bugs_fixed: int
+    total_memory_saved_mb: float
+    most_common_bug_type: Optional[str] = None
+    avg_code_dna_score: float
+    score_trend: list[float]  # list of avg scores over time, oldest first

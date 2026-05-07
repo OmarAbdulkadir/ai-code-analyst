@@ -57,7 +57,7 @@ class Orchestrator:
                 pass
 
     def run(self, source_code: str, description: str = None,
-            on_log: Optional[Callable] = None) -> FinalReport:
+            on_log: Optional[Callable] = None, user_id: Optional[str] = None) -> FinalReport:
         """
         Execute the full 4-agent pipeline.
         
@@ -235,6 +235,7 @@ class Orchestrator:
             optimized_code=optimization.optimized_code,
             overall_summary=overall_summary,
             stages_completed=stages_completed,
+            user_id=user_id,
         )
 
         # Attach DNA fingerprints

@@ -10,4 +10,4 @@ build/
 .idea/
 venv/
 node_modules/
-*.log
+*.logdatasets/chroma_db/

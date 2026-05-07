@@ -87,45 +87,72 @@ class Orchestrator:
         print(f"   → Complexity: {perf_report.time_complexity}")
         stages_completed.append("performance_analysis")
 
-        print("\n" + "=" * 60)
-        print("🔧 STAGE 3: Optimization")
-        print("=" * 60)
-        try:
-            optimization: OptimizationResult = optimize_code(
-                user_input=user_input,
-                bug_report=bug_report,
-                performance_report=perf_report,
-            )
-        except Exception as e:
-            print(f"   Optimizer failed: {e}")
-            optimization = OptimizationResult(
-                optimized_code=user_input.source_code,
-                changes_made=[],
-                expected_improvement=f"Optimization failed: {str(e)}",
-            )
-        print(f"   → Changes: {len(optimization.changes_made)}")
-        print(f"   → Expected: {optimization.expected_improvement}")
-        stages_completed.append("optimization")
+        # ─── Self-Healing Pipeline: up to 3 attempts ────────
+        strategies = [
+            ("Speed Focus",        "Reduce time complexity. Use faster algorithms and data structures."),
+            ("Memory Focus",       "Reduce memory usage. Minimize allocations, use generators where possible."),
+            ("Conservative Focus", "Make only minimal safe changes. Preserve exact logic but fix obvious inefficiencies."),
+        ]
 
-        print("\n" + "=" * 60)
-        print("✅ STAGE 4: Validation")
-        print("=" * 60)
-        try:
-            validation: ValidationResult = validate_optimization(
-                original_code=user_input.source_code,
-                optimized_code=optimization.optimized_code,
-            )
-        except Exception as e:
-            print(f"   Validator failed: {e}")
-            validation = ValidationResult(
-                status=ValidationStatus.REJECTED,
-                summary=f"Validation failed: {str(e)}",
-                outputs_match=False,
-            )
-        print(f"   → Status: {validation.status.value}")
-        if validation.speedup_percentage:
-            print(f"   → Speedup: {validation.speedup_percentage:.1f}%")
-        print(f"   → Outputs match: {validation.outputs_match}")
+        optimization: OptimizationResult = None
+        validation: ValidationResult = None
+        feedback = None
+
+        for attempt, (strategy_name, strategy_hint) in enumerate(strategies):
+            print("\n" + "=" * 60)
+            print(f"🔧 STAGE 3: Optimization (Attempt {attempt + 1} — {strategy_name})")
+            print("=" * 60)
+
+            try:
+                optimization = optimize_code(
+                    user_input=user_input,
+                    bug_report=bug_report,
+                    performance_report=perf_report,
+                    feedback=feedback,
+                )
+            except Exception as e:
+                print(f"   Optimizer failed: {e}")
+                optimization = OptimizationResult(
+                    optimized_code=user_input.source_code,
+                    changes_made=[],
+                    expected_improvement=f"Optimization failed: {str(e)}",
+                )
+            print(f"   → Changes: {len(optimization.changes_made)}")
+            print(f"   → Expected: {optimization.expected_improvement}")
+
+            print("\n" + "=" * 60)
+            print(f"✅ STAGE 4: Validation (Attempt {attempt + 1})")
+            print("=" * 60)
+
+            try:
+                validation = validate_optimization(
+                    original_code=user_input.source_code,
+                    optimized_code=optimization.optimized_code,
+                )
+            except Exception as e:
+                print(f"   Validator failed: {e}")
+                validation = ValidationResult(
+                    status=ValidationStatus.REJECTED,
+                    summary=f"Validation failed: {str(e)}",
+                    outputs_match=False,
+                )
+
+            print(f"   → Status: {validation.status.value}")
+            if validation.speedup_percentage:
+                print(f"   → Speedup: {validation.speedup_percentage:.1f}%")
+            print(f"   → Outputs match: {validation.outputs_match}")
+
+            if validation.status != ValidationStatus.REJECTED:
+                break
+
+            if attempt < len(strategies) - 1:
+                next_strategy = strategies[attempt + 1]
+                feedback = f"{validation.summary} Next strategy: {next_strategy[1]}"
+                print(f"   → Rejected. Retrying with '{next_strategy[0]}' strategy...")
+            else:
+                print("   → All strategies exhausted. Could not produce a valid optimization.")
+
+        stages_completed.append("optimization")
         stages_completed.append("validation")
 
         # ─── Build Final Report ──────────────────────────────

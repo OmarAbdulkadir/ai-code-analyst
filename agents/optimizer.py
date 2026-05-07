@@ -22,6 +22,7 @@ def optimize_code(
     user_input: UserInput,
     bug_report: BugReport,
     performance_report: PerformanceReport,
+    feedback: str = None,
 ) -> OptimizationResult:
     # Input validation
     if not user_input.source_code or not user_input.source_code.strip():
@@ -43,6 +44,9 @@ def optimize_code(
         bug_report=bug_report.model_dump_json(indent=2),
         performance_report=performance_report.model_dump_json(indent=2),
     )
+
+    if feedback:
+        prompt += f"\n\nPREVIOUS ATTEMPT FAILED: {feedback}\nAdjust your strategy accordingly."
 
     response = client.chat.completions.create(
         model="google/gemini-2.0-flash-lite-001",

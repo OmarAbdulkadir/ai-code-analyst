@@ -104,6 +104,25 @@ class CodeDNAFingerprint(BaseModel):
     label: str              # "Baseline" or "Optimized"
 
 
+# ─── Resource Timeline (for heatmap) ────────────────────
+
+class ResourceSample(BaseModel):
+    """One psutil snapshot taken during code execution."""
+    elapsed_ms: float       # milliseconds since execution start
+    cpu_percent: float      # CPU % at this instant (0–100)
+    memory_mb: float        # RSS memory in MB at this instant
+
+class ResourceTimeline(BaseModel):
+    """
+    Full time-series collected during one code execution run.
+    Contains the list of samples and summary stats.
+    """
+    samples: list[ResourceSample]
+    peak_cpu_percent: float
+    peak_memory_mb: float
+    sample_interval_ms: float = 100.0   # how often psutil polled
+
+
 # ─── Bug Detector Output ────────────────────────────────
 
 class Bug(BaseModel):
@@ -177,3 +196,5 @@ class FinalReport(BaseModel):
     stages_completed: List[str] = []
     baseline_dna: Optional[CodeDNAFingerprint] = None
     optimized_dna: Optional[CodeDNAFingerprint] = None
+    baseline_resources: Optional[ResourceTimeline] = None
+    optimized_resources: Optional[ResourceTimeline] = None

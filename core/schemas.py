@@ -73,6 +73,21 @@ class SecurityReport(BaseModel):
     summary: str = ""
 
 
+# ─── RAG Context ─────────────────────────────────────────
+
+class RAGMatch(BaseModel):
+    original_code_snippet: str
+    optimized_code_snippet: str
+    speedup_percentage: float
+    similarity_score: float        # 0.0 to 1.0 — how similar to current code
+    bug_types_fixed: List[str] = []
+
+class RAGContext(BaseModel):
+    matches_found: int = 0
+    top_matches: List[RAGMatch] = []
+    retrieval_summary: str = ""    # plain English: "Found 2 similar past fixes"
+
+
 # ─── Bug Detector Output ────────────────────────────────
 
 class Bug(BaseModel):
@@ -136,6 +151,7 @@ class FinalReport(BaseModel):
     source_code: str
     architect_report: Optional[ArchitectReport] = None
     security_report: Optional[SecurityReport] = None
+    rag_context: Optional[RAGContext] = None
     bug_report: BugReport
     performance_report: PerformanceReport
     optimization: OptimizationResult

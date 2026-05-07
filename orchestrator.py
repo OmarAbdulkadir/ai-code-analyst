@@ -21,9 +21,13 @@ from core.schemas import (
     ValidationResult,
     ValidationStatus,
     FinalReport,
+    ArchitectReport,
+    SecurityReport,
 )
 
 # Import agents — each teammate implements their own
+from agents.architect_agent import analyze_architecture
+from agents.security_agent import scan_security
 from agents.bug_detector import detect_bugs
 from agents.performance_analyzer import analyze_performance
 from agents.optimizer import optimize_code
@@ -58,7 +62,34 @@ class Orchestrator:
         stages_completed = []
 
         print("=" * 60)
-        print("🔍 STAGE 1: Bug Detection")
+        print("🏗️  STAGE 1: Architecture Analysis")
+        print("=" * 60)
+        try:
+            architect_report: ArchitectReport = analyze_architecture(user_input)
+            print(f"   → Found {architect_report.total_functions} functions. Most complex: {architect_report.most_complex_function}")
+        except Exception as e:
+            print(f"   Architect Agent failed: {e}")
+            architect_report = ArchitectReport(
+                architecture_summary=f"Architecture analysis failed: {str(e)}"
+            )
+        stages_completed.append("architecture_analysis")
+
+        print("\n" + "=" * 60)
+        print("🔐 STAGE 2: Security Scan")
+        print("=" * 60)
+        try:
+            security_report: SecurityReport = scan_security(user_input, architect_report)
+            print(f"   → Security score: {security_report.security_score}/100. Issues: {len(security_report.issues)}")
+        except Exception as e:
+            print(f"   Security Agent failed: {e}")
+            security_report = SecurityReport(
+                security_score=100,
+                summary=f"Security scan failed: {str(e)}"
+            )
+        stages_completed.append("security_scan")
+
+        print("\n" + "=" * 60)
+        print("🔍 STAGE 3: Bug Detection")
         print("=" * 60)
         try:
             bug_report: BugReport = detect_bugs(user_input)
@@ -74,7 +105,7 @@ class Orchestrator:
         stages_completed.append("bug_detection")
 
         print("\n" + "=" * 60)
-        print("⚡ STAGE 2: Performance Analysis")
+        print("⚡ STAGE 4: Performance Analysis")
         print("=" * 60)
         try:
             perf_report: PerformanceReport = analyze_performance(user_input)
@@ -87,72 +118,45 @@ class Orchestrator:
         print(f"   → Complexity: {perf_report.time_complexity}")
         stages_completed.append("performance_analysis")
 
-        # ─── Self-Healing Pipeline: up to 3 attempts ────────
-        strategies = [
-            ("Speed Focus",        "Reduce time complexity. Use faster algorithms and data structures."),
-            ("Memory Focus",       "Reduce memory usage. Minimize allocations, use generators where possible."),
-            ("Conservative Focus", "Make only minimal safe changes. Preserve exact logic but fix obvious inefficiencies."),
-        ]
-
-        optimization: OptimizationResult = None
-        validation: ValidationResult = None
-        feedback = None
-
-        for attempt, (strategy_name, strategy_hint) in enumerate(strategies):
-            print("\n" + "=" * 60)
-            print(f"🔧 STAGE 3: Optimization (Attempt {attempt + 1} — {strategy_name})")
-            print("=" * 60)
-
-            try:
-                optimization = optimize_code(
-                    user_input=user_input,
-                    bug_report=bug_report,
-                    performance_report=perf_report,
-                    feedback=feedback,
-                )
-            except Exception as e:
-                print(f"   Optimizer failed: {e}")
-                optimization = OptimizationResult(
-                    optimized_code=user_input.source_code,
-                    changes_made=[],
-                    expected_improvement=f"Optimization failed: {str(e)}",
-                )
-            print(f"   → Changes: {len(optimization.changes_made)}")
-            print(f"   → Expected: {optimization.expected_improvement}")
-
-            print("\n" + "=" * 60)
-            print(f"✅ STAGE 4: Validation (Attempt {attempt + 1})")
-            print("=" * 60)
-
-            try:
-                validation = validate_optimization(
-                    original_code=user_input.source_code,
-                    optimized_code=optimization.optimized_code,
-                )
-            except Exception as e:
-                print(f"   Validator failed: {e}")
-                validation = ValidationResult(
-                    status=ValidationStatus.REJECTED,
-                    summary=f"Validation failed: {str(e)}",
-                    outputs_match=False,
-                )
-
-            print(f"   → Status: {validation.status.value}")
-            if validation.speedup_percentage:
-                print(f"   → Speedup: {validation.speedup_percentage:.1f}%")
-            print(f"   → Outputs match: {validation.outputs_match}")
-
-            if validation.status != ValidationStatus.REJECTED:
-                break
-
-            if attempt < len(strategies) - 1:
-                next_strategy = strategies[attempt + 1]
-                feedback = f"{validation.summary} Next strategy: {next_strategy[1]}"
-                print(f"   → Rejected. Retrying with '{next_strategy[0]}' strategy...")
-            else:
-                print("   → All strategies exhausted. Could not produce a valid optimization.")
-
+        print("\n" + "=" * 60)
+        print("🔧 STAGE 5: Optimization")
+        print("=" * 60)
+        try:
+            optimization: OptimizationResult = optimize_code(
+                user_input=user_input,
+                bug_report=bug_report,
+                performance_report=perf_report,
+            )
+        except Exception as e:
+            print(f"   Optimizer failed: {e}")
+            optimization = OptimizationResult(
+                optimized_code=user_input.source_code,
+                changes_made=[],
+                expected_improvement=f"Optimization failed: {str(e)}",
+            )
+        print(f"   → Changes: {len(optimization.changes_made)}")
+        print(f"   → Expected: {optimization.expected_improvement}")
         stages_completed.append("optimization")
+
+        print("\n" + "=" * 60)
+        print("✅ STAGE 6: Validation")
+        print("=" * 60)
+        try:
+            validation: ValidationResult = validate_optimization(
+                original_code=user_input.source_code,
+                optimized_code=optimization.optimized_code,
+            )
+        except Exception as e:
+            print(f"   Validator failed: {e}")
+            validation = ValidationResult(
+                status=ValidationStatus.REJECTED,
+                summary=f"Validation failed: {str(e)}",
+                outputs_match=False,
+            )
+        print(f"   → Status: {validation.status.value}")
+        if validation.speedup_percentage:
+            print(f"   → Speedup: {validation.speedup_percentage:.1f}%")
+        print(f"   → Outputs match: {validation.outputs_match}")
         stages_completed.append("validation")
 
         # ─── Build Final Report ──────────────────────────────
@@ -163,6 +167,8 @@ class Orchestrator:
 
         report = FinalReport(
             source_code=source_code,
+            architect_report=architect_report,
+            security_report=security_report,
             bug_report=bug_report,
             performance_report=perf_report,
             optimization=optimization,

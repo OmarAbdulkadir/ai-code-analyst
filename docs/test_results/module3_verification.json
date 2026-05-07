@@ -38,9 +38,7 @@
         "optimized_code_snippet": "result = sum(i*j for i in range(n) for j in range(n))",
         "speedup_percentage": 45.0,
         "similarity_score": 0.717,
-        "bug_types_fixed": [
-          "nested_loop"
-        ]
+        "bug_types_fixed": ["nested_loop"]
       },
       {
         "original_code_snippet": "for i in range(n):\n    for j in range(n):\n        x += i",
@@ -63,9 +61,7 @@
     "memory_usage_mb": 0.0004,
     "time_complexity": "O(n^2)",
     "space_complexity": "O(n)",
-    "bottlenecks": [
-      "Nested loop at line 6"
-    ],
+    "bottlenecks": ["Nested loop at line 6"],
     "executed_successfully": true,
     "execution_error": null,
     "summary": "Code has O(n^2) time complexity."

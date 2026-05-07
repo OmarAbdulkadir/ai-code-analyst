@@ -88,6 +88,22 @@ class RAGContext(BaseModel):
     retrieval_summary: str = ""    # plain English: "Found 2 similar past fixes"
 
 
+# ─── Code DNA Fingerprint ───────────────────────────────
+
+class CodeDNAFingerprint(BaseModel):
+    """
+    Six normalised scores (0–100) for the radar chart.
+    Higher is always better.
+    """
+    complexity: float       # 100 - cyclomatic_complexity_score (inverted: lower complexity = better)
+    security: float         # 100 - (critical_issues * 20 + warnings * 5), clamped 0-100
+    performance: float      # derived from execution_time rank vs baseline
+    readability: float      # Gemini-supplied or AST heuristic (avg function length, naming)
+    bug_density: float      # 100 - (bug_score from BugReport)
+    optimization: float     # speedup_percentage mapped to 0-100 scale
+    label: str              # "Baseline" or "Optimized"
+
+
 # ─── Bug Detector Output ────────────────────────────────
 
 class Bug(BaseModel):
@@ -159,3 +175,5 @@ class FinalReport(BaseModel):
     optimized_code: str
     overall_summary: str = Field(..., description="Executive summary of the full analysis")
     stages_completed: List[str] = []
+    baseline_dna: Optional[CodeDNAFingerprint] = None
+    optimized_dna: Optional[CodeDNAFingerprint] = None

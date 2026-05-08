@@ -39,20 +39,17 @@ def execute_code(source_code: str) -> ExecutionResult:
         ExecutionResult with stdout, stderr, timing, memory
     """
 
-    # Wrap user code with tracemalloc memory tracking
+    # Wrap user code with resource-based memory tracking (RSS, Linux ru_maxrss is in KB)
     wrapped_code = f"""
-import tracemalloc
 import sys
-
-tracemalloc.start()
+import resource
 
 # USER CODE START
 {source_code}
 # USER CODE END
 
-current, peak = tracemalloc.get_traced_memory()
-tracemalloc.stop()
-print(f"__MEMORY_PEAK_MB__:{{peak / 1024 / 1024:.4f}}", file=sys.stderr)
+_mem_kb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+print(f"__MEMORY_PEAK_MB__:{{_mem_kb / 1024:.4f}}", file=sys.stderr)
 """
 
     try:

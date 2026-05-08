@@ -57,11 +57,12 @@ export default function History() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    Promise.all([getStats(), getSessions()])
-      .then(([statsRes, sessionsRes]) => {
-        setStats(statsRes.data);
-        setSessions(sessionsRes.data);
-      })
+    getStats()
+      .then((res) => setStats(res.data))
+      .catch(() => {});
+
+    getSessions()
+      .then((res) => setSessions(res.data))
       .catch(() => setError("Failed to load history"))
       .finally(() => setLoading(false));
   }, []);
@@ -278,7 +279,7 @@ export default function History() {
         {error && (
           <div style={{ color: "var(--danger)", fontSize: 13 }}>{error}</div>
         )}
-        {!loading && sessions.length === 0 && (
+        {!loading && !error && sessions.length === 0 && (
           <div
             style={{
               textAlign: "center",

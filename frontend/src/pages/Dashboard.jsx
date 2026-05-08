@@ -73,8 +73,6 @@ export default function Dashboard() {
         ? "var(--danger)"
         : "var(--text-3)";
 
-  const lines = code.split("\n");
-
   return (
     <div
       style={{

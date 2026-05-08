@@ -9,10 +9,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional
 import json
+from collections import Counter
 
 from supabase import create_client, Client
 from core.config import SUPABASE_URL, SUPABASE_ANON_KEY
-from core.schemas import FinalReport, SessionRecord, UserStats
+from core.schemas import FinalReport, UserStats
 from orchestrator import Orchestrator
 
 app = FastAPI(title="AI Code Analyst API", version="1.0.0")
@@ -25,9 +26,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+_SESSION_LIST_LIMIT = 50
+_MEM_SAVING_FRACTION = 0.3
+
 # Strip any path suffix (e.g. /rest/v1/) — SDK needs bare project URL
 _base_url = SUPABASE_URL.split("/rest/")[0].split("/auth/")[0].rstrip("/") if SUPABASE_URL else ""
 supabase: Client = create_client(_base_url, SUPABASE_ANON_KEY)
+_orchestrator = Orchestrator()
 
 class AnalyzeRequest(BaseModel):
     code: str
@@ -86,8 +91,8 @@ def signup(req: SignupRequest):
         }
     except HTTPException:
         raise
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    except Exception:
+        raise HTTPException(status_code=400, detail="Authentication error")
 
 @app.post("/auth/login")
 def login(req: LoginRequest):
@@ -108,8 +113,8 @@ def login(req: LoginRequest):
         }
     except HTTPException:
         raise
-    except Exception as e:
-        raise HTTPException(status_code=401, detail=str(e))
+    except Exception:
+        raise HTTPException(status_code=401, detail="Authentication error")
 
 @app.post("/auth/logout")
 def logout(authorization: Optional[str] = Header(None)):
@@ -132,11 +137,12 @@ def me(user=Depends(require_auth)):
 def analyze(req: AnalyzeRequest, authorization: Optional[str] = Header(None)):
     if not req.code or not req.code.strip():
         raise HTTPException(status_code=400, detail="Code cannot be empty")
+    if len(req.code) > 100_000:
+        raise HTTPException(status_code=400, detail="Code exceeds 100KB limit")
     user = get_current_user(authorization)
     user_id = user.id if user else None
     try:
-        orch = Orchestrator()
-        report: FinalReport = orch.run(
+        report: FinalReport = _orchestrator.run(
             source_code=req.code,
             description=req.description,
             user_id=user_id,
@@ -161,7 +167,7 @@ def get_sessions(user=Depends(require_auth)):
             .select("id, created_at, source_code, final_report") \
             .eq("user_id", user.id) \
             .order("created_at", desc=True) \
-            .limit(50) \
+            .limit(_SESSION_LIST_LIMIT) \
             .execute()
         return res.data
     except Exception as e:
@@ -195,7 +201,7 @@ def get_stats(user=Depends(require_auth)):
             val = r.get("validation", {})
             orig_mem = perf.get("memory_usage_mb", 0) or 0
             if val.get("status") == "approved" and orig_mem > 0:
-                total_memory_saved += orig_mem * 0.3
+                total_memory_saved += orig_mem * _MEM_SAVING_FRACTION
             for bug in bug_report.get("bugs", []):
                 if bug.get("category"):
                     bug_types.append(bug["category"])
@@ -203,7 +209,7 @@ def get_stats(user=Depends(require_auth)):
             if optimized_dna:
                 scores = [optimized_dna.get(k, 0) for k in ["complexity","security","performance","readability","bug_density","optimization"]]
                 dna_scores.append(sum(scores) / len(scores))
-        most_common = max(set(bug_types), key=bug_types.count) if bug_types else None
+        most_common = Counter(bug_types).most_common(1)[0][0] if bug_types else None
         avg_score = sum(dna_scores) / len(dna_scores) if dna_scores else 0.0
         return UserStats(
             total_sessions=len(sessions),
@@ -223,11 +229,11 @@ def get_session(session_id: str, user=Depends(require_auth)):
             .select("*") \
             .eq("id", session_id) \
             .eq("user_id", user.id) \
-            .single() \
+            .limit(1) \
             .execute()
         if not res.data:
             raise HTTPException(status_code=404, detail="Session not found")
-        return res.data
+        return res.data[0]
     except HTTPException:
         raise
     except Exception as e:

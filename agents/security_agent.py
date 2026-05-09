@@ -5,15 +5,14 @@ import tempfile
 import os
 
 from core.schemas import SecurityReport, SecurityIssue, UserInput, ArchitectReport
-from core.config import GEMINI_API_KEY
+from core.config import OPENAI_API_KEY
 
 from openai import OpenAI
 
 client = OpenAI(
-    api_key=GEMINI_API_KEY,
-    base_url="https://openrouter.ai/api/v1",
+    api_key=OPENAI_API_KEY,
 )
-MODEL = "google/gemini-2.0-flash-001"
+MODEL = "gpt-4o-mini"
 
 
 def _run_bandit(source_code: str) -> list[dict]:

@@ -3,11 +3,10 @@ import re
 from openai import OpenAI
 from core.schemas import UserInput, BugReport, PerformanceReport, OptimizationResult
 from core.prompts import OPTIMIZER_PROMPT
-from core.config import GEMINI_API_KEY
+from core.config import OPENAI_API_KEY
 
 client = OpenAI(
-    base_url="https://openrouter.ai/api/v1",
-    api_key=GEMINI_API_KEY,
+    api_key=OPENAI_API_KEY,
 )
 
 def _clean_json(text: str) -> str:
@@ -40,16 +39,16 @@ def optimize_code(
         )
 
     prompt = OPTIMIZER_PROMPT.format(
-        source_code=user_input.source_code,
-        bug_report=bug_report.model_dump_json(indent=2),
-        performance_report=performance_report.model_dump_json(indent=2),
+        original_code=user_input.source_code,
+        bug_summary=bug_report.summary,
+        performance_bottlenecks=", ".join(performance_report.bottlenecks) if performance_report.bottlenecks else "none detected",
     )
 
     if feedback:
         prompt += f"\n\nPREVIOUS ATTEMPT FAILED: {feedback}\nAdjust your strategy accordingly."
 
     response = client.chat.completions.create(
-        model="google/gemini-2.0-flash-lite-001",
+        model="gpt-4o-mini",
         messages=[{"role": "user", "content": prompt}],
     )
 
@@ -61,7 +60,7 @@ def optimize_code(
         # Retry once with explicit instruction to return clean JSON
         retry_prompt = prompt + "\n\nIMPORTANT: Your response must be valid JSON only. No triple quotes inside string values — use single quotes or escape them."
         retry_response = client.chat.completions.create(
-            model="google/gemini-2.0-flash-lite-001",
+            model="gpt-4o-mini",
             messages=[{"role": "user", "content": retry_prompt}],
         )
         text = _clean_json(retry_response.choices[0].message.content)

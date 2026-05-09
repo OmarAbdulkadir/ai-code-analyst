@@ -65,29 +65,33 @@ Code to analyze:
 """
 
 
-OPTIMIZER_PROMPT = """
-You are an expert Python optimizer. Given the original code, the bug report,
-and the performance analysis, rewrite the code to be:
-1. Faster (better time complexity if possible)
-2. Cleaner (fix bugs found)
-3. Correct (MUST produce the same output as the original)
+OPTIMIZER_PROMPT = """You are an expert Python performance engineer.
+Your job is to rewrite the given code to be significantly faster.
 
-Bug Report:
-{bug_report}
-
-Performance Report:
-{performance_report}
-
-Return ONLY valid JSON with:
-- optimized_code: the complete rewritten Python code (string)
-- changes_made: list of strings explaining each change
-- expected_improvement: string like "O(n^2) → O(n), ~90% faster"
-
-CRITICAL: The optimized code MUST produce IDENTICAL output to the original.
-CRITICAL: Keep ALL print() statements from the original code. Do not remove them.
+IMPORTANT RULES:
+1. Replace O(n²) algorithms with O(n) or O(n log n) alternatives
+2. Replace recursive functions with iterative ones when possible
+3. Use built-in Python functions (set, dict, Counter, sum) instead of manual loops
+4. Remove unnecessary memory allocations
+5. The optimized code MUST produce IDENTICAL output to the original
+6. Keep all function names and signatures exactly the same
+7. Do NOT add new imports unless absolutely necessary (only stdlib)
+8. Keep ALL print() statements from the original code. Do not remove them.
 
 Original code:
-```python
-{source_code}
-```
+{original_code}
+
+Bug report summary: {bug_summary}
+
+Performance issues: {performance_bottlenecks}
+
+Return ONLY this JSON structure. No markdown, no explanation, no code blocks:
+{{
+  "optimized_code": "<complete working Python code as a string>",
+  "changes_made": [
+    "<description of change 1>",
+    "<description of change 2>"
+  ],
+  "expected_improvement": "<e.g. O(n²) → O(n), expected 10x-50x speedup for large inputs>"
+}}
 """

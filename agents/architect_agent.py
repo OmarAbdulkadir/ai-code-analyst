@@ -4,15 +4,14 @@ import re
 from typing import Dict, List
 
 from core.schemas import ArchitectReport, FunctionInfo, UserInput
-from core.config import GEMINI_API_KEY
+from core.config import OPENAI_API_KEY
 
 from openai import OpenAI
 
 client = OpenAI(
-    api_key=GEMINI_API_KEY,
-    base_url="https://openrouter.ai/api/v1",
+    api_key=OPENAI_API_KEY,
 )
-MODEL = "google/gemini-2.0-flash-001"
+MODEL = "gpt-4o-mini"
 
 
 def _extract_functions(source_code: str) -> Dict[str, List[str]]:

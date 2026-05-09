@@ -14,7 +14,7 @@ load_dotenv()
 
 # ─── API Keys ────────────────────────────────────────────
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 
 # ─── Database ────────────────────────────────────────────
 
@@ -37,5 +37,5 @@ SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY")
 
 # ─── Validation ──────────────────────────────────────────
 
-if not GEMINI_API_KEY:
-    print("⚠️  WARNING: GEMINI_API_KEY not set. Agents will fail.")
+if not OPENAI_API_KEY:
+    print("⚠️  WARNING: OPENAI_API_KEY not set. Agents will fail.")

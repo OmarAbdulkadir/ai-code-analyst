@@ -1,12 +1,12 @@
 import json
+import re
 from openai import OpenAI
 from core.schemas import UserInput, BugReport, Bug, Severity
 from core.prompts import BUG_DETECTOR_PROMPT
-from core.config import GEMINI_API_KEY
+from core.config import OPENAI_API_KEY
 
 client = OpenAI(
-    base_url="https://openrouter.ai/api/v1",
-    api_key=GEMINI_API_KEY,
+    api_key=OPENAI_API_KEY,
 )
 
 def detect_bugs(user_input: UserInput) -> BugReport:
@@ -38,31 +38,49 @@ def detect_bugs(user_input: UserInput) -> BugReport:
     prompt = BUG_DETECTOR_PROMPT.format(source_code=user_input.source_code)
 
     response = client.chat.completions.create(
-        model="google/gemini-2.0-flash-lite-001",
+        model="gpt-4o-mini",
         messages=[{"role": "user", "content": prompt}],
     )
 
     text = response.choices[0].message.content
-    text = text.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+    text = re.sub(r'```(?:json)?\s*|\s*```', '', text).strip()
 
     try:
         data = json.loads(text)
     except json.JSONDecodeError:
+        match = re.search(r'\{.*\}', text, re.DOTALL)
+        if match:
+            try:
+                data = json.loads(match.group())
+            except json.JSONDecodeError:
+                data = None
+        else:
+            data = None
+
+    if data is None:
         return BugReport(
-            bug_score=50,
+            bug_score=0,
             bugs=[],
-            summary="Could not parse Gemini response. Please try again.",
+            summary="Could not parse response.",
             has_critical_bugs=False,
         )
+
+    def _map_severity(s: str) -> str:
+        s = (s or "").lower()
+        if s in ("critical", "high"):
+            return "critical"
+        if s in ("medium", "warning"):
+            return "warning"
+        return "info"
 
     bugs = []
     for b in data.get("bugs", []):
         bugs.append(Bug(
-            line_number=b.get("line_number"),
-            severity=b.get("severity", "info"),
-            category=b.get("category", "bad_practice"),
+            line_number=b.get("line") or b.get("line_number"),
+            severity=_map_severity(b.get("severity", "info")),
+            category=b.get("type") or b.get("category", "bad_practice"),
             description=b.get("description", ""),
-            suggestion=b.get("suggestion", ""),
+            suggestion=b.get("fix") or b.get("suggestion", ""),
         ))
 
     return BugReport(

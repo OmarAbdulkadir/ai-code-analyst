@@ -9,44 +9,41 @@ without touching agent logic.
 """
 
 
-BUG_DETECTOR_PROMPT = """
-You are an expert Python code safety auditor. Your job is to detect bugs by mentally executing the code.
+BUG_DETECTOR_PROMPT = """You are a senior Python code reviewer.
+Analyze the following Python code and return a JSON object only.
 
-STEP 1 — MENTALLY EXECUTE THE CODE:
-Trace through every line as if you are the Python interpreter. Follow every function call, loop iteration, and branch. Ask yourself: "What actually happens when this runs with realistic inputs?"
+Find ALL of the following issues:
+- Runtime errors (KeyError, IndexError, TypeError, etc.)
+- Missing error handling (no try/except where needed)
+- Logic bugs (wrong loop bounds, off-by-one, wrong conditions)
+- Performance bugs (O(n²) or worse when O(n) is possible)
+- Unused variables or imports
+- Any other code quality issues
 
-STEP 2 — CHECK THESE CATEGORIES (be strict and thorough):
-- Division by zero: any `a / b` or `a % b` where `b` could be 0
-- Empty container crash: accessing `list[0]`, or calling sum/min/max on a possibly empty collection
-- Index out of range: `lst[i]` where `i` may exceed the list length
-- None/null dereference: calling a method on a value that could be None
-- Infinite loops: while loops with no guaranteed exit condition
-- Unhandled exceptions: file I/O, network calls, int() on bad strings, etc.
-- Type mismatches: wrong type passed to a function expecting another type
-- Logic errors: wrong operator, off-by-one, incorrect condition, wrong return value
-- Bad practices: mutable default arguments, bare except clauses that hide errors
-- Security issues: hardcoded secrets, unsafe deserialization, path traversal, input sanitization
+Return ONLY this JSON structure. No markdown, no explanation, no code blocks:
+{{
+  "bug_score": <integer 0-100, where 100 = worst possible code>,
+  "bugs": [
+    {{
+      "line": <line number or 0 if unknown>,
+      "severity": "<critical|high|medium|low>",
+      "type": "<type of bug>",
+      "description": "<clear explanation of what is wrong and why>",
+      "fix": "<specific suggestion to fix it>"
+    }}
+  ],
+  "has_critical_bugs": <true|false>,
+  "summary": "<2-3 sentence summary of the code's overall quality>"
+}}
 
-STEP 3 — SCORE HONESTLY:
-- bug_score 0: ABSOLUTELY PERFECT code. Zero issues. Do NOT return 0 unless the code is genuinely flawless.
-- bug_score 1–20: Only minor style issues, zero runtime risk
-- bug_score 21–50: Warnings or bad practices that rarely crash
-- bug_score 51–80: Will crash with certain realistic inputs
-- bug_score 81–100: Crashes immediately or has critical security flaws
-
-EXAMPLE — for code `def divide(a, b): return a / b` called as `divide(10, 0)`:
-{{"bug_score": 80, "has_critical_bugs": true, "summary": "The divide function crashes with ZeroDivisionError when b is 0. The test call passes 0 as the divisor, so this will raise an exception at runtime.", "bugs": [{{"line_number": 1, "severity": "critical", "category": "runtime_error", "description": "Division by zero: b=0 causes ZeroDivisionError at runtime.", "suggestion": "Add a guard: if b == 0: raise ValueError('divisor cannot be zero')"}}]}}
-
-RULES:
-- Return ONLY valid JSON. No markdown. No explanation. No code fences.
-- Exact field names: bug_score (int 0-100), has_critical_bugs (bool), summary (string), bugs (array)
-- Each bug: line_number (int or null), severity ("critical"/"warning"/"info"), category ("runtime_error"/"logic_error"/"bad_practice"/"security"), description (string), suggestion (string)
-- If the code is truly bug-free, return bug_score 0, has_critical_bugs false, bugs []
+Scoring guide:
+- 0-20 = clean code, minor style issues only
+- 21-50 = some bugs, nothing critical
+- 51-80 = multiple bugs including at least one high severity
+- 81-100 = critical bugs, code will crash or produce wrong output
 
 Code to analyze:
-```python
 {source_code}
-```
 """
 
 

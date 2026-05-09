@@ -91,8 +91,9 @@ def signup(req: SignupRequest):
         }
     except HTTPException:
         raise
-    except Exception:
-        raise HTTPException(status_code=400, detail="Authentication error")
+    except Exception as e:
+        msg = getattr(e, "message", None) or str(e)
+        raise HTTPException(status_code=400, detail=msg)
 
 @app.post("/auth/login")
 def login(req: LoginRequest):
@@ -113,8 +114,9 @@ def login(req: LoginRequest):
         }
     except HTTPException:
         raise
-    except Exception:
-        raise HTTPException(status_code=401, detail="Authentication error")
+    except Exception as e:
+        msg = getattr(e, "message", None) or str(e)
+        raise HTTPException(status_code=401, detail=msg)
 
 @app.post("/auth/logout")
 def logout(authorization: Optional[str] = Header(None)):

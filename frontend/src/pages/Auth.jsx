@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { login, signup } from "../lib/api";
+import { supabase } from "../lib/supabaseClient";
 import { isLoggedIn, saveAuth } from "../lib/auth";
 
 export default function Auth() {
@@ -11,6 +11,7 @@ export default function Auth() {
   const [displayName, setDisplayName] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
 
   useEffect(() => {
     if (isLoggedIn()) navigate("/dashboard", { replace: true });
@@ -19,211 +20,334 @@ export default function Auth() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
+    setSuccess("");
     setLoading(true);
     try {
-      let res;
       if (tab === "login") {
-        res = await login(email, password);
+        const { data, error: authError } =
+          await supabase.auth.signInWithPassword({
+            email,
+            password,
+          });
+        if (authError) throw authError;
+        saveAuth(data.session.access_token, {
+          id: data.user.id,
+          email: data.user.email,
+          display_name:
+            data.user.user_metadata?.display_name ||
+            data.user.email.split("@")[0],
+        });
+        navigate("/dashboard", { replace: true });
       } else {
-        res = await signup(email, password, displayName);
+        const { data, error: authError } = await supabase.auth.signUp({
+          email,
+          password,
+          options: {
+            data: { display_name: displayName || email.split("@")[0] },
+          },
+        });
+        if (authError) throw authError;
+        if (!data.session) {
+          setSuccess(
+            "Account created! Check your email to confirm before signing in.",
+          );
+          return;
+        }
+        saveAuth(data.session.access_token, {
+          id: data.user.id,
+          email: data.user.email,
+          display_name: displayName || data.user.email.split("@")[0],
+        });
+        navigate("/dashboard", { replace: true });
       }
-      const { access_token, user } = res.data;
-      if (!access_token) {
-        setError("No token returned. Check your email for confirmation.");
-        return;
-      }
-      saveAuth(access_token, user);
-      navigate("/dashboard", { replace: true });
-    } catch (e) {
-      setError(e.response?.data?.detail || "Something went wrong");
+    } catch (err) {
+      console.error("Auth error:", err);
+      setError(err.message || "Something went wrong");
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div
-      style={{
-        minHeight: "100vh",
-        background: "var(--bg)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: "2rem",
-      }}
-    >
-      <div style={{ width: "100%", maxWidth: 400 }}>
-        {/* Logo */}
-        <div style={{ textAlign: "center", marginBottom: "2rem" }}>
-          <div
-            style={{
-              width: 48,
-              height: 48,
-              borderRadius: 10,
-              background: "var(--accent)",
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontWeight: 700,
-              fontSize: 22,
-              color: "#000",
-              marginBottom: "1rem",
-            }}
-          >
-            V
-          </div>
-          <div
-            style={{
-              fontSize: 11,
-              letterSpacing: "0.15em",
-              color: "var(--text-3)",
-              textTransform: "uppercase",
-              marginBottom: "0.5rem",
-            }}
-          >
-            AUTONOMOUS
-          </div>
-          <h1 style={{ fontSize: 22, fontWeight: 600, color: "var(--text)" }}>
-            Access the workspace
-          </h1>
-        </div>
+    <>
+      <style>{`
+        @keyframes authCardIn {
+          from { opacity: 0; transform: translateY(20px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes logoPulse {
+          0%, 100% { box-shadow: 0 0 0 0 rgba(0,255,200,0.4); }
+          50%       { box-shadow: 0 0 0 8px rgba(0,255,200,0); }
+        }
+        @keyframes authSpin {
+          to { transform: rotate(360deg); }
+        }
+        .auth-card {
+          animation: authCardIn 0.5s ease forwards;
+        }
+        .auth-input {
+          width: 100%;
+          background: #0d0d0d;
+          border: 1px solid rgba(255,255,255,0.08);
+          border-radius: 8px;
+          padding: 10px 14px;
+          color: white;
+          font-family: var(--font-body);
+          font-size: 14px;
+          outline: none;
+          transition: border-color 0.2s ease;
+          box-sizing: border-box;
+        }
+        .auth-input:focus {
+          border-color: rgba(0,255,200,0.4);
+        }
+        .auth-input::placeholder {
+          color: rgba(255,255,255,0.25);
+        }
+        .auth-tab {
+          flex: 1;
+          padding: 8px;
+          border: none;
+          border-radius: 6px;
+          font-family: var(--font-body);
+          font-size: 13px;
+          cursor: pointer;
+          transition: all 0.2s ease;
+        }
+        .auth-tab-active {
+          background: #222;
+          color: white;
+          font-weight: 500;
+        }
+        .auth-tab-inactive {
+          background: transparent;
+          color: rgba(255,255,255,0.4);
+          font-weight: 400;
+        }
+        .auth-submit {
+          width: 100%;
+          padding: 12px;
+          background: var(--accent-cyan);
+          border: none;
+          border-radius: 8px;
+          color: #0a0a0a;
+          font-family: var(--font-mono);
+          font-weight: 600;
+          font-size: 14px;
+          cursor: pointer;
+          transition: all 0.2s ease;
+          margin-top: 4px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 8px;
+        }
+        .auth-submit:hover:not(:disabled) {
+          box-shadow: 0 0 20px rgba(0,255,200,0.4);
+          transform: scale(1.02);
+        }
+        .auth-submit:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
+          transform: none !important;
+        }
+        .auth-spinner {
+          width: 14px;
+          height: 14px;
+          border: 2px solid rgba(10,10,10,0.3);
+          border-top-color: #0a0a0a;
+          border-radius: 50%;
+          animation: authSpin 0.7s linear infinite;
+          flex-shrink: 0;
+        }
+        .auth-logo {
+          width: 48px;
+          height: 48px;
+          border-radius: 10px;
+          background: var(--accent-cyan);
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          font-weight: 700;
+          font-size: 22px;
+          color: #0a0a0a;
+          font-family: var(--font-display);
+          animation: logoPulse 3s ease-in-out infinite;
+          margin-bottom: 16px;
+        }
+        .auth-label {
+          font-size: 0.82rem;
+          color: rgba(255,255,255,0.55);
+          display: block;
+          margin-bottom: 6px;
+          font-family: var(--font-body);
+        }
+      `}</style>
 
-        {/* Tab toggle */}
+      <div
+        style={{
+          minHeight: "100vh",
+          background: "var(--bg-primary)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: "2rem",
+        }}
+      >
         <div
+          className="auth-card"
           style={{
-            display: "flex",
-            background: "var(--bg-card)",
-            border: "1px solid var(--border)",
-            borderRadius: "var(--radius)",
-            padding: 3,
-            marginBottom: "1.5rem",
+            width: "100%",
+            maxWidth: 420,
+            background: "#161616",
+            border: "1px solid rgba(255,255,255,0.08)",
+            borderRadius: 16,
+            padding: 40,
           }}
         >
-          {["login", "signup"].map((t) => (
-            <button
-              key={t}
-              onClick={() => {
-                setTab(t);
-                setError("");
-              }}
-              style={{
-                flex: 1,
-                padding: "0.5rem",
-                borderRadius: "var(--radius)",
-                background:
-                  tab === t ? "rgba(255,255,255,0.08)" : "transparent",
-                border: "none",
-                color: tab === t ? "var(--text)" : "var(--text-2)",
-                fontSize: 13,
-                fontWeight: tab === t ? 500 : 400,
-              }}
-            >
-              {t === "login" ? "Sign in" : "Create account"}
-            </button>
-          ))}
-        </div>
-
-        {/* Form */}
-        <form
-          onSubmit={handleSubmit}
-          style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}
-        >
-          {tab === "signup" && (
-            <div>
-              <label
-                style={{
-                  fontSize: 12,
-                  color: "var(--text-2)",
-                  display: "block",
-                  marginBottom: 4,
-                }}
-              >
-                Display name
-              </label>
-              <input
-                type="text"
-                placeholder="Your name"
-                value={displayName}
-                onChange={(e) => setDisplayName(e.target.value)}
-              />
-            </div>
-          )}
-          <div>
-            <label
-              style={{
-                fontSize: 12,
-                color: "var(--text-2)",
-                display: "block",
-                marginBottom: 4,
-              }}
-            >
-              Email
-            </label>
-            <input
-              type="email"
-              placeholder="you@example.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-            />
-          </div>
-          <div>
-            <label
-              style={{
-                fontSize: 12,
-                color: "var(--text-2)",
-                display: "block",
-                marginBottom: 4,
-              }}
-            >
-              Password
-            </label>
-            <input
-              type="password"
-              placeholder="••••••••"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-            />
-          </div>
-
-          {error && (
+          {/* Logo + header */}
+          <div style={{ textAlign: "center", marginBottom: "2rem" }}>
+            <div className="auth-logo">V</div>
             <div
               style={{
-                fontSize: 12,
-                color: "var(--danger)",
-                background: "rgba(239,68,68,0.1)",
-                border: "1px solid rgba(239,68,68,0.2)",
-                borderRadius: "var(--radius)",
-                padding: "0.6rem 0.9rem",
+                fontFamily: "var(--font-mono)",
+                fontSize: "0.7rem",
+                letterSpacing: "0.15em",
+                color: "rgba(255,255,255,0.3)",
+                textTransform: "uppercase",
+                marginBottom: "0.5rem",
               }}
             >
-              {error}
+              AUTONOMOUS
             </div>
-          )}
+            <h1
+              style={{
+                fontFamily: "var(--font-display)",
+                fontWeight: 700,
+                fontSize: "1.8rem",
+                color: "white",
+                margin: 0,
+              }}
+            >
+              Access the workspace
+            </h1>
+          </div>
 
-          <button
-            type="submit"
-            disabled={loading}
+          {/* Tab switcher */}
+          <div
             style={{
-              marginTop: "0.5rem",
-              padding: "0.7rem",
-              borderRadius: "var(--radius)",
-              background: loading ? "rgba(34,211,238,0.5)" : "var(--accent)",
-              border: "none",
-              color: "#000",
-              fontWeight: 600,
-              fontSize: 14,
+              display: "flex",
+              background: "#0d0d0d",
+              borderRadius: 8,
+              padding: 4,
+              marginBottom: "1.5rem",
             }}
           >
-            {loading
-              ? "Working..."
-              : tab === "login"
-                ? "Sign in →"
-                : "Create account →"}
-          </button>
-        </form>
+            {[
+              { key: "login", label: "Sign in" },
+              { key: "signup", label: "Create account" },
+            ].map(({ key, label }) => (
+              <button
+                key={key}
+                className={`auth-tab ${tab === key ? "auth-tab-active" : "auth-tab-inactive"}`}
+                onClick={() => {
+                  setTab(key);
+                  setError("");
+                  setSuccess("");
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {/* Form */}
+          <form
+            onSubmit={handleSubmit}
+            style={{ display: "flex", flexDirection: "column", gap: "1rem" }}
+          >
+            {tab === "signup" && (
+              <div>
+                <label className="auth-label">Display name</label>
+                <input
+                  className="auth-input"
+                  type="text"
+                  placeholder="Your name"
+                  value={displayName}
+                  onChange={(e) => setDisplayName(e.target.value)}
+                />
+              </div>
+            )}
+
+            <div>
+              <label className="auth-label">Email</label>
+              <input
+                className="auth-input"
+                type="email"
+                placeholder="you@example.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+              />
+            </div>
+
+            <div>
+              <label className="auth-label">Password</label>
+              <input
+                className="auth-input"
+                type="password"
+                placeholder="••••••••"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+              />
+            </div>
+
+            {error && (
+              <div
+                style={{
+                  background: "rgba(255,68,68,0.1)",
+                  border: "1px solid rgba(255,68,68,0.3)",
+                  color: "#ff6b6b",
+                  borderRadius: 8,
+                  padding: "10px 14px",
+                  fontFamily: "var(--font-body)",
+                  fontSize: "0.85rem",
+                  lineHeight: 1.5,
+                }}
+              >
+                {error}
+              </div>
+            )}
+
+            {success && (
+              <div
+                style={{
+                  background: "rgba(0,255,200,0.08)",
+                  border: "1px solid rgba(0,255,200,0.25)",
+                  color: "#00ffc8",
+                  borderRadius: 8,
+                  padding: "10px 14px",
+                  fontFamily: "var(--font-body)",
+                  fontSize: "0.85rem",
+                  lineHeight: 1.5,
+                }}
+              >
+                {success}
+              </div>
+            )}
+
+            <button type="submit" disabled={loading} className="auth-submit">
+              {loading && <span className="auth-spinner" />}
+              {loading
+                ? "..."
+                : tab === "login"
+                  ? "Sign in →"
+                  : "Create account →"}
+            </button>
+          </form>
+        </div>
       </div>
-    </div>
+    </>
   );
 }

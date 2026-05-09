@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # AI Model
-GEMINI_API_KEY = os.getenv("AIzaSyA27N8L_cQ7wREREg86RCUAvtoopqu_MRs", "")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 MODEL = "gemini-1.5-flash"
 MAX_TOKENS = 4096
 

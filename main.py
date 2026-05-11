@@ -11,4 +11,4 @@ import uvicorn
 from core.config import HOST, PORT
 
 if __name__ == "__main__":
-    uvicorn.run("web.app:app", host=HOST, port=PORT, reload=True)
+    uvicorn.run("api.app:app", host=HOST, port=PORT, reload=True)

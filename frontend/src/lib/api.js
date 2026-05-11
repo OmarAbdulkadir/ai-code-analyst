@@ -20,7 +20,7 @@ API.interceptors.response.use(
   },
 );
 export const analyzeCode = (code, description) =>
-  API.post("/analyze", { code, description });
+  API.post("/analyze", { source_code: code, description });
 export const signup = (email, password, display_name) =>
   API.post("/auth/signup", { email, password, display_name });
 export const login = (email, password) =>

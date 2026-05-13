@@ -77,10 +77,21 @@ def _run_with_timeline(code: str) -> tuple:
     if len(samples_container) < 2:
         return result, None
 
+    # Replace psutil RSS (server process, ~1000MB noise) with real Docker memory
+    real_mem_mb = result.memory_usage_mb or 0.0
+    corrected = [
+        ResourceSample(
+            elapsed_ms=s.elapsed_ms,
+            cpu_percent=s.cpu_percent,
+            memory_mb=real_mem_mb,
+        )
+        for s in samples_container
+    ]
+
     timeline = ResourceTimeline(
-        samples=samples_container,
-        peak_cpu_percent=max(s.cpu_percent for s in samples_container),
-        peak_memory_mb=max(s.memory_mb for s in samples_container),
+        samples=corrected,
+        peak_cpu_percent=max(s.cpu_percent for s in corrected),
+        peak_memory_mb=real_mem_mb,
         sample_interval_ms=100.0,
     )
     return result, timeline
@@ -99,8 +110,8 @@ def validate_optimization(
         "optimized_resources" (ResourceTimeline or None)
     """
     # Collect resource timelines (one monitoring run each)
-    _, baseline_timeline = _run_with_timeline(original_code)
-    _, optimized_timeline = _run_with_timeline(optimized_code)
+    baseline_exec, baseline_timeline = _run_with_timeline(original_code)
+    optimized_exec, optimized_timeline = _run_with_timeline(optimized_code)
 
     # Run original code (3x for reliable timing)
     orig_result = _run_multiple(original_code, num_runs)
@@ -149,11 +160,11 @@ def validate_optimization(
         }
 
     # ─── Compare outputs ─────────────────────────────────
-    
+
     outputs_match = _normalize_output(orig_result["output"]) == _normalize_output(opt_result["output"])
 
     # ─── Compare performance ─────────────────────────────
-    
+
     orig_time = orig_result["avg_time_ms"]
     opt_time = opt_result["avg_time_ms"]
 
@@ -163,7 +174,7 @@ def validate_optimization(
         speedup = 0.0
 
     # ─── Determine status ────────────────────────────────
-    
+
     if not outputs_match:
         status = ValidationStatus.REJECTED
         summary = (

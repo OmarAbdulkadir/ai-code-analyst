@@ -6,9 +6,11 @@ Author: Asaad (System Architect)
 
 from fastapi import FastAPI, HTTPException, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import Optional
 import json
+import asyncio
 from collections import Counter
 
 from supabase import create_client, Client
@@ -139,8 +141,8 @@ def me(user=Depends(require_auth)):
 def analyze(req: AnalyzeRequest, authorization: Optional[str] = Header(None)):
     if not req.source_code or not req.source_code.strip():
         raise HTTPException(status_code=400, detail="Code cannot be empty")
-    if len(req.source_code) > 100_000:
-        raise HTTPException(status_code=400, detail="Code exceeds 100KB limit")
+    if len(req.source_code) > 500_000:
+        raise HTTPException(status_code=400, detail="Code exceeds 500KB limit")
     user = get_current_user(authorization)
     user_id = user.id if user else None
     try:
@@ -164,6 +166,68 @@ def analyze(req: AnalyzeRequest, authorization: Optional[str] = Header(None)):
         except Exception as e:
             print(f"[API] Failed to save session: {e}")
     return report
+
+@app.post("/analyze/stream")
+async def analyze_stream(req: AnalyzeRequest, authorization: Optional[str] = Header(None)):
+    if not req.source_code or not req.source_code.strip():
+        raise HTTPException(status_code=400, detail="Code cannot be empty")
+    if len(req.source_code) > 500_000:
+        raise HTTPException(status_code=400, detail="Code exceeds 500KB limit")
+    user = get_current_user(authorization)
+    user_id = user.id if user else None
+    loop = asyncio.get_event_loop()
+    queue: asyncio.Queue = asyncio.Queue()
+
+    def run_pipeline():
+        def on_stage(stage, data):
+            asyncio.run_coroutine_threadsafe(
+                queue.put({"type": "stage", "stage": stage, "data": data}), loop
+            )
+        try:
+            report = _orchestrator.run(
+                source_code=req.source_code,
+                description=req.description,
+                user_id=user_id,
+                on_stage=on_stage,
+            )
+            report_dict = json.loads(report.model_dump_json())
+            if user_id and authorization:
+                try:
+                    token = authorization.split(" ")[1]
+                    supabase.postgrest.auth(token)
+                    supabase.table("sessions").insert({
+                        "user_id": user_id,
+                        "source_code": req.source_code,
+                        "final_report": report_dict,
+                    }).execute()
+                    supabase.postgrest.auth(SUPABASE_ANON_KEY)
+                except Exception as e:
+                    print(f"[API] Failed to save session: {e}")
+            asyncio.run_coroutine_threadsafe(
+                queue.put({"type": "complete", "data": report_dict}), loop
+            )
+        except Exception as e:
+            asyncio.run_coroutine_threadsafe(
+                queue.put({"type": "error", "error": str(e)}), loop
+            )
+
+    async def generate():
+        loop.run_in_executor(None, run_pipeline)
+        while True:
+            try:
+                event = await asyncio.wait_for(queue.get(), timeout=300)
+            except asyncio.TimeoutError:
+                yield "data: {\"type\":\"error\",\"error\":\"Pipeline timed out\"}\n\n"
+                break
+            yield f"data: {json.dumps(event)}\n\n"
+            if event["type"] in ("complete", "error"):
+                break
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 @app.get("/sessions")
 def get_sessions(authorization: Optional[str] = Header(None), user=Depends(require_auth)):

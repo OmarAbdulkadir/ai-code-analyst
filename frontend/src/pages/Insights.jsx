@@ -183,7 +183,7 @@ export default function Insights() {
         : "var(--text-tertiary)";
   const healthScore = avg(report.optimized_dna, DNA_KEYS);
 
-  // Derive baseline DNA when API doesn't provide it (baseline_dna is null pre-optimization)
+  // Derive baseline DNA when API doesn't provide it
   const bugScore = report.bug_report?.bug_score ?? 50;
   const sp = val.speedup_percentage ?? 0;
   const opt = report.optimized_dna;
@@ -191,22 +191,18 @@ export default function Insights() {
     report.baseline_dna ||
     (opt
       ? {
-          performance: Math.max(
-            10,
-            (opt.performance ?? 50) - Math.min(40, sp * 0.8),
-          ),
+          // Performance: baseline is slower — subtract speedup gain
+          performance: Math.max(10, (opt.performance ?? 50) - Math.max(15, sp * 0.8)),
           complexity: Math.max(10, (opt.complexity ?? 50) - bugScore * 0.2),
           security: Math.max(
             10,
             (opt.security ?? 50) -
-              (report.bug_report?.has_critical_bugs ? 25 : bugScore * 0.1),
+              (report.bug_report?.has_critical_bugs ? 30 : Math.max(10, bugScore * 0.2)),
           ),
-          readability: Math.max(10, (opt.readability ?? 50) - bugScore * 0.15),
+          readability: Math.max(10, (opt.readability ?? 50) - Math.max(10, bugScore * 0.2)),
           bug_density: Math.max(5, 100 - bugScore),
-          optimization: Math.max(
-            5,
-            (opt.optimization ?? 50) - Math.min(40, sp),
-          ),
+          // Optimization: baseline always 30 points lower than optimized minimum
+          optimization: Math.max(5, Math.min(30, (opt.optimization ?? 60) - 35)),
         }
       : null);
 

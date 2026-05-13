@@ -65,14 +65,14 @@ Code to analyze:
 """
 
 
-OPTIMIZER_PROMPT = """You are an expert Python performance engineer.
-Your job is to rewrite the given code to be significantly faster.
+OPTIMIZER_PROMPT = """You are an expert Python engineer specialising in performance, security, and correctness.
+Rewrite the given code to fix ALL reported issues — security vulnerabilities, bugs, and performance bottlenecks.
 
 IMPORTANT RULES:
-1. Replace O(n²) algorithms with O(n) or O(n log n) alternatives
-2. Replace recursive functions with iterative ones when possible
-3. Use built-in Python functions (set, dict, Counter, sum) instead of manual loops
-4. Remove unnecessary memory allocations
+1. Fix every security issue listed (SQL injection, hardcoded secrets, eval/exec, insecure deserialization, etc.)
+2. Replace O(n²) algorithms with O(n) or O(n log n) alternatives where possible
+3. Fix all bugs from the bug report
+4. Use built-in Python functions (set, dict, Counter, sum) instead of manual loops
 5. The optimized code MUST produce IDENTICAL output to the original
 6. Keep all function names and signatures exactly the same
 7. Do NOT add new imports unless absolutely necessary (only stdlib)
@@ -80,6 +80,8 @@ IMPORTANT RULES:
 
 Original code:
 {original_code}
+
+Security issues to fix: {security_issues}
 
 Bug report summary: {bug_summary}
 
@@ -92,6 +94,6 @@ Return ONLY this JSON structure. No markdown, no explanation, no code blocks:
     "<description of change 1>",
     "<description of change 2>"
   ],
-  "expected_improvement": "<e.g. O(n²) → O(n), expected 10x-50x speedup for large inputs>"
+  "expected_improvement": "<summary of security fixes, bug fixes, and performance gains>"
 }}
 """

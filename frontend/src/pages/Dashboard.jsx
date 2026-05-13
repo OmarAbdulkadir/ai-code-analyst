@@ -1,15 +1,9 @@
 import { useState, useEffect } from "react";
+import { flushSync } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import Navbar from "../components/Navbar";
 import { analyzeCode } from "../lib/api";
 
-const FILES = [
-  { name: "fib.py", dot: "#ef4444", folder: "src" },
-  { name: "report.py", dot: "#f59e0b", folder: "src" },
-  { name: "utils.py", dot: null, folder: "src" },
-  { name: "test_main.py", dot: null, folder: "tests" },
-  { name: "README.md", dot: null, folder: "" },
-];
 
 const STAGES = [
   "Stage 1/6: Architect Agent",
@@ -30,20 +24,161 @@ print(fib(10))`;
 
 export default function Dashboard() {
   const navigate = useNavigate();
-  const [code, setCode] = useState("");
+  const [code, setCode] = useState(() => sessionStorage.getItem("last_code") || "");
   const [analyzing, setAnalyzing] = useState(false);
   const [stageIdx, setStageIdx] = useState(0);
-  const [results, setResults] = useState(null);
+  const [streamedStages, setStreamedStages] = useState({});
+  const [results, setResults] = useState(() => {
+    const r = sessionStorage.getItem("last_report");
+    return r ? JSON.parse(r) : null;
+  });
   const [error, setError] = useState("");
-  const [activeFile, setActiveFile] = useState("fib.py");
+  const [activeFile, setActiveFile] = useState(() => sessionStorage.getItem("last_active_file") || null);
+  const [uploadedFiles, setUploadedFiles] = useState(() => {
+    const f = sessionStorage.getItem("last_uploaded_files");
+    return f ? JSON.parse(f) : [];
+  });
+  const [loadingFiles, setLoadingFiles] = useState(false);
+  const [loadingStatus, setLoadingStatus] = useState("");
+  const [selectingFolder, setSelectingFolder] = useState(false);
   const [cursorVisible, setCursorVisible] = useState(true);
   const [displayedSpeedup, setDisplayedSpeedup] = useState(0);
+
+  const switchToFile = (file) => {
+    setActiveFile(file.name);
+    setCode(file.content);
+    setResults(null);
+    setError("");
+  };
+
+  const SKIP_DIRS = [
+    "node_modules", "venv", ".venv", "__pycache__", ".git",
+    "dist", "build", ".next", "env", "site-packages", ".tox",
+    "migrations", ".mypy_cache", ".pytest_cache",
+  ];
+
+  // + File: pick individual .py files (fast, no freeze)
+  const handleFileUpload = (e) => {
+    const fileList = e.target.files;
+    e.target.value = "";
+    if (!fileList || fileList.length === 0) return;
+    setLoadingFiles(true);
+    const files = Array.from(fileList).filter((f) => f.name.endsWith(".py")).slice(0, 50);
+    if (files.length === 0) {
+      setError("No Python files selected.");
+      setLoadingFiles(false);
+      return;
+    }
+    Promise.all(
+      files.map((f) => new Promise((res) => {
+        const r = new FileReader();
+        r.onload = (ev) => res({ name: f.name, path: f.name, content: ev.target.result });
+        r.readAsText(f);
+      }))
+    ).then((loaded) => {
+      setUploadedFiles(loaded);
+      setResults(null);
+      setError("");
+      setActiveFile(loaded[0].name);
+      setCode(loaded[0].content);
+      setLoadingFiles(false);
+    });
+  };
+
+  // + Folder: use async showDirectoryPicker so the browser never freezes
+  const handleFolderPick = async () => {
+    if (!window.showDirectoryPicker) {
+      document.getElementById("folder-upload").click();
+      return;
+    }
+    setSelectingFolder(true);
+    let dirHandle;
+    try {
+      dirHandle = await window.showDirectoryPicker();
+    } catch (e) {
+      setSelectingFolder(false);
+      if (e.name !== "AbortError") {
+        // API unavailable or blocked — fall back to classic picker
+        document.getElementById("folder-upload").click();
+      }
+      return;
+    }
+    setSelectingFolder(false);
+    setLoadingFiles(true);
+    setLoadingStatus("Scanning...");
+    try {
+
+      const collected = [];
+      const walk = async (handle, pathPrefix, depth = 0) => {
+        if (collected.length >= 50 || depth > 8) return;
+        const entries = [];
+        for await (const [name, entry] of handle.entries()) {
+          entries.push([name, entry]);
+        }
+        await Promise.all(entries.map(async ([name, entry]) => {
+          if (collected.length >= 50) return;
+          // Skip hidden dirs and known junk dirs
+          if (entry.kind === "directory") {
+            if (!name.startsWith(".") && !SKIP_DIRS.includes(name)) {
+              await walk(entry, pathPrefix ? `${pathPrefix}/${name}` : name, depth + 1);
+            }
+          } else if (name.endsWith(".py")) {
+            const file = await entry.getFile();
+            collected.push({ name, path: pathPrefix ? `${pathPrefix}/${name}` : name, file });
+            const count = collected.length;
+            flushSync(() => setLoadingStatus(`Found ${count} file${count !== 1 ? "s" : ""}...`));
+          }
+        }));
+      };
+      await walk(dirHandle, dirHandle.name);
+
+      if (collected.length === 0) {
+        setError("No Python files found (skipped venv/node_modules/__pycache__).");
+        setLoadingFiles(false);
+        return;
+      }
+
+      const loaded = await Promise.all(
+        collected.map(({ name, path, file }) =>
+          new Promise((res) => {
+            const r = new FileReader();
+            r.onload = (ev) => res({ name, path, content: ev.target.result });
+            r.readAsText(file);
+          })
+        )
+      );
+
+      setUploadedFiles(loaded);
+      setResults(null);
+      setError("");
+      setActiveFile(loaded[0].name);
+      setCode(loaded[0].content);
+      setLoadingFiles(false);
+      setLoadingStatus("");
+    } catch (e) {
+      setLoadingFiles(false);
+      setLoadingStatus("");
+      setError(`Failed to read folder: ${e.message}`);
+    }
+  };
+
+  // Combine all uploaded files for analysis
+  const getAnalysisCode = () => {
+    if (uploadedFiles.length <= 1) return code;
+    return uploadedFiles
+      .map((f) => `# ── ${f.path} ──\n${f.content}`)
+      .join("\n\n");
+  };
 
   useEffect(() => {
     if (!analyzing) return;
     const id = setInterval(() => setCursorVisible((v) => !v), 500);
     return () => clearInterval(id);
   }, [analyzing]);
+
+  useEffect(() => { sessionStorage.setItem("last_code", code); }, [code]);
+  useEffect(() => { sessionStorage.setItem("last_active_file", activeFile || ""); }, [activeFile]);
+  useEffect(() => { sessionStorage.setItem("last_uploaded_files", JSON.stringify(uploadedFiles)); }, [uploadedFiles]);
 
   const speedup = results?.validation?.speedup_percentage ?? null;
   useEffect(() => {
@@ -67,20 +202,58 @@ export default function Dashboard() {
     setResults(null);
     setError("");
     setStageIdx(0);
+    setStreamedStages({});
 
-    const interval = setInterval(() => {
-      setStageIdx((i) => (i < STAGES.length - 1 ? i + 1 : i));
-    }, 8000);
+    const STAGE_ORDER = ["architect", "security", "bugs", "performance", "optimization", "validation"];
+    const token = localStorage.getItem("access_token");
+    const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
     try {
-      const res = await analyzeCode(code);
-      clearInterval(interval);
-      sessionStorage.setItem("last_report", JSON.stringify(res.data));
-      setResults(res.data);
+      const response = await fetch(`${apiUrl}/analyze/stream`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ source_code: getAnalysisCode(), description: null }),
+      });
+
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.detail || `HTTP ${response.status}`);
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      const partialReport = {};
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop();
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          let event;
+          try { event = JSON.parse(line.slice(6)); } catch { continue; }
+
+          if (event.type === "stage") {
+            const idx = STAGE_ORDER.indexOf(event.stage);
+            if (idx !== -1) setStageIdx(idx + 1);
+            partialReport[event.stage] = event.data;
+            setStreamedStages((prev) => ({ ...prev, [event.stage]: event.data }));
+          } else if (event.type === "complete") {
+            sessionStorage.setItem("last_report", JSON.stringify(event.data));
+            setResults(event.data);
+          } else if (event.type === "error") {
+            throw new Error(event.error);
+          }
+        }
+      }
     } catch (e) {
-      clearInterval(interval);
-      console.error("[Analyze error]", e);
-      setError(e.response?.data?.detail || e.message || "Analysis failed");
+      setError(e.message || "Analysis failed");
     } finally {
       setAnalyzing(false);
     }
@@ -206,8 +379,14 @@ export default function Dashboard() {
               fontFamily: "var(--font-mono)",
             }}
           >
-            <span style={{ color: "var(--text-tertiary)" }}>src /</span>
-            <span style={{ color: "var(--text-primary)" }}>{activeFile}</span>
+            {uploadedFiles.length > 1 && (
+              <span style={{ color: "var(--text-tertiary)" }}>
+                {uploadedFiles[0]?.path.split("/")[0]} /
+              </span>
+            )}
+            <span style={{ color: "var(--text-primary)" }}>
+              {activeFile || "untitled.py"}
+            </span>
             <span
               style={{
                 fontSize: 11,
@@ -241,11 +420,37 @@ export default function Dashboard() {
                 {t}
               </span>
             ))}
+
+            {/* Hidden file inputs */}
+            <input
+              id="file-upload"
+              type="file"
+              accept=".py"
+              multiple
+              style={{ display: "none" }}
+              onChange={handleFileUpload}
+            />
+            <input
+              id="folder-upload"
+              type="file"
+              accept=".py"
+              multiple
+              webkitdirectory=""
+              style={{ display: "none" }}
+              onChange={handleFileUpload}
+            />
+
             <button
               onClick={() => {
                 setCode("");
                 setResults(null);
                 setError("");
+                setUploadedFiles([]);
+                setActiveFile(null);
+                sessionStorage.removeItem("last_code");
+                sessionStorage.removeItem("last_report");
+                sessionStorage.removeItem("last_active_file");
+                sessionStorage.removeItem("last_uploaded_files");
               }}
               style={{
                 fontSize: 11,
@@ -294,62 +499,169 @@ export default function Dashboard() {
                 color: "var(--text-tertiary)",
                 borderBottom: "1px solid var(--border)",
                 fontFamily: "var(--font-mono)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
               }}
             >
-              EXPLORER
+              <span>EXPLORER</span>
+              <div style={{ display: "flex", gap: 4 }}>
+                <button
+                  title="Select .py files"
+                  onClick={() => document.getElementById("file-upload").click()}
+                  style={{
+                    fontSize: 10,
+                    padding: "1px 6px",
+                    borderRadius: 3,
+                    background: "transparent",
+                    border: "1px solid var(--border)",
+                    color: "var(--accent-cyan)",
+                    cursor: "pointer",
+                    fontFamily: "var(--font-mono)",
+                  }}
+                >
+                  + File
+                </button>
+                <button
+                  title="Select a project folder"
+                  onClick={handleFolderPick}
+                  style={{
+                    fontSize: 10,
+                    padding: "1px 6px",
+                    borderRadius: 3,
+                    background: "transparent",
+                    border: "1px solid var(--border)",
+                    color: "var(--accent-cyan)",
+                    cursor: "pointer",
+                    fontFamily: "var(--font-mono)",
+                  }}
+                >
+                  + Folder
+                </button>
+                {uploadedFiles.length > 0 && (
+                  <button
+                    title="Clear current project and open a new folder"
+                    onClick={() => {
+                      setCode("");
+                      setResults(null);
+                      setError("");
+                      setUploadedFiles([]);
+                      setActiveFile(null);
+                      sessionStorage.removeItem("last_code");
+                      sessionStorage.removeItem("last_report");
+                      sessionStorage.removeItem("last_active_file");
+                      sessionStorage.removeItem("last_uploaded_files");
+                      handleFolderPick();
+                    }}
+                    style={{
+                      fontSize: 10,
+                      padding: "1px 6px",
+                      borderRadius: 3,
+                      background: "transparent",
+                      border: "1px solid #e05252",
+                      color: "#e05252",
+                      cursor: "pointer",
+                      fontFamily: "var(--font-mono)",
+                    }}
+                  >
+                    ↺ New
+                  </button>
+                )}
+              </div>
             </div>
             <div style={{ flex: 1, overflow: "auto", padding: "0.5rem 0" }}>
-              {["src", "tests", ""]
-                .filter((v, i, a) => a.indexOf(v) === i)
-                .map((folder) => (
-                  <div key={folder}>
-                    {folder && (
-                      <div
-                        style={{
-                          padding: "0.2rem 0.75rem",
-                          fontSize: 11,
-                          color: "var(--text-tertiary)",
-                          letterSpacing: "0.08em",
-                          fontFamily: "var(--font-mono)",
-                        }}
-                      >
-                        {folder}/
-                      </div>
-                    )}
-                    {FILES.filter((f) => f.folder === folder).map((f) => (
-                      <div
-                        key={f.name}
-                        className="sidebar-file"
-                        onClick={() => setActiveFile(f.name)}
-                        style={{
-                          background:
-                            activeFile === f.name
-                              ? "var(--bg-card)"
-                              : "transparent",
-                          color:
-                            activeFile === f.name
-                              ? "var(--text-primary)"
-                              : "var(--text-secondary)",
-                        }}
-                      >
-                        {f.dot ? (
+              {(selectingFolder || loadingFiles) ? (
+                <div
+                  style={{
+                    padding: "2rem 0.75rem",
+                    textAlign: "center",
+                    color: "var(--accent-cyan)",
+                    fontSize: 11,
+                    fontFamily: "var(--font-mono)",
+                    lineHeight: 1.8,
+                  }}
+                >
+                  <span className="spinner" style={{ margin: "0 auto 8px", display: "block", width: 14, height: 14 }} />
+                  {selectingFolder ? "Waiting for folder..." : (loadingStatus || "Reading files...")}
+                </div>
+              ) : uploadedFiles.length === 0 ? (
+                <div
+                  style={{
+                    padding: "2rem 0.75rem",
+                    textAlign: "center",
+                    color: "var(--text-tertiary)",
+                    fontSize: 11,
+                    fontFamily: "var(--font-mono)",
+                    lineHeight: 1.8,
+                  }}
+                >
+                  No files open.
+                  <br />
+                  + File or
+                  <br />
+                  + Folder above.
+                </div>
+              ) : (
+                (() => {
+                  // Group by folder
+                  const folders = {};
+                  uploadedFiles.forEach((f) => {
+                    const parts = f.path.split("/");
+                    const folder = parts.length > 1 ? parts.slice(0, -1).join("/") : "";
+                    if (!folders[folder]) folders[folder] = [];
+                    folders[folder].push(f);
+                  });
+                  return Object.entries(folders).map(([folder, files]) => (
+                    <div key={folder}>
+                      {folder && (
+                        <div
+                          style={{
+                            padding: "0.3rem 0.75rem",
+                            fontSize: 11,
+                            color: "var(--accent-cyan)",
+                            letterSpacing: "0.08em",
+                            fontFamily: "var(--font-mono)",
+                            opacity: 0.7,
+                          }}
+                        >
+                          📁 {folder}
+                        </div>
+                      )}
+                      {files.map((f) => (
+                        <div
+                          key={f.path}
+                          className="sidebar-file"
+                          onClick={() => switchToFile(f)}
+                          style={{
+                            paddingLeft: folder ? "1.5rem" : "0.75rem",
+                            background:
+                              activeFile === f.name
+                                ? "var(--bg-card)"
+                                : "transparent",
+                            color:
+                              activeFile === f.name
+                                ? "var(--text-primary)"
+                                : "var(--text-secondary)",
+                          }}
+                        >
                           <span
                             style={{
                               width: 6,
                               height: 6,
                               borderRadius: "50%",
-                              background: f.dot,
+                              background: activeFile === f.name
+                                ? "var(--accent-cyan)"
+                                : "var(--text-tertiary)",
                               flexShrink: 0,
                             }}
                           />
-                        ) : (
-                          <span style={{ width: 6, flexShrink: 0 }} />
-                        )}
-                        {f.name}
-                      </div>
-                    ))}
-                  </div>
-                ))}
+                          {f.name}
+                        </div>
+                      ))}
+                    </div>
+                  ));
+                })()
+              )}
             </div>
             <div
               style={{
@@ -477,41 +789,81 @@ export default function Dashboard() {
               </div>
 
               {analyzing && (
-                <div
-                  style={{
-                    padding: "1rem",
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: "0.5rem",
-                  }}
-                >
+                <div style={{ padding: "1rem", display: "flex", flexDirection: "column", gap: "0.5rem" }}>
                   {STAGES.map((s, i) => {
                     const done = i < stageIdx;
                     const active = i === stageIdx;
                     return (
-                      <div
-                        key={s}
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: "0.5rem",
-                          fontSize: 12,
-                          color: done
-                            ? "var(--text-secondary)"
-                            : active
-                              ? "var(--accent-cyan)"
-                              : "var(--text-tertiary)",
-                        }}
-                      >
-                        {done && (
-                          <span style={{ color: "var(--accent-cyan)" }}>✓</span>
-                        )}
+                      <div key={s} style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: 12,
+                          color: done ? "var(--text-secondary)" : active ? "var(--accent-cyan)" : "var(--text-tertiary)" }}>
+                        {done && <span style={{ color: "var(--accent-cyan)" }}>✓</span>}
                         {active && <span className="spinner" />}
                         {!done && !active && <span>○</span>}
                         {s}
                       </div>
                     );
                   })}
+                </div>
+              )}
+
+              {/* Live stage results that appear as each agent finishes */}
+              {analyzing && Object.keys(streamedStages).length > 0 && (
+                <div style={{ padding: "0 1rem 1rem", display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                  {streamedStages.architect && (
+                    <div className="result-card" style={{ animation: "fadeIn 0.3s ease" }}>
+                      <div style={{ fontSize: 10, color: "var(--accent-cyan)", marginBottom: 4, fontFamily: "var(--font-mono)" }}>ARCHITECTURE</div>
+                      <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>
+                        {streamedStages.architect.total_functions ?? 0} functions · Complexity: {streamedStages.architect.most_complex_function || "—"}
+                      </div>
+                    </div>
+                  )}
+                  {streamedStages.security && (
+                    <div className="result-card" style={{ animation: "fadeIn 0.3s ease" }}>
+                      <div style={{ fontSize: 10, color: "var(--accent-cyan)", marginBottom: 4, fontFamily: "var(--font-mono)" }}>SECURITY</div>
+                      <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>
+                        Score: <span style={{ color: streamedStages.security.security_score >= 80 ? "var(--success)" : "var(--danger)", fontWeight: 600 }}>{streamedStages.security.security_score}/100</span>
+                        {" · "}{streamedStages.security.issues?.length ?? 0} issue{streamedStages.security.issues?.length !== 1 ? "s" : ""}
+                      </div>
+                    </div>
+                  )}
+                  {streamedStages.bugs && (
+                    <div className="result-card" style={{ animation: "fadeIn 0.3s ease" }}>
+                      <div style={{ fontSize: 10, color: "var(--accent-cyan)", marginBottom: 4, fontFamily: "var(--font-mono)" }}>BUGS</div>
+                      <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>
+                        {streamedStages.bugs.bugs?.length ?? 0} bug{streamedStages.bugs.bugs?.length !== 1 ? "s" : ""} found
+                        {streamedStages.bugs.has_critical_bugs && <span style={{ color: "var(--danger)", marginLeft: 6 }}>⚠ critical</span>}
+                      </div>
+                    </div>
+                  )}
+                  {streamedStages.performance && (
+                    <div className="result-card" style={{ animation: "fadeIn 0.3s ease" }}>
+                      <div style={{ fontSize: 10, color: "var(--accent-cyan)", marginBottom: 4, fontFamily: "var(--font-mono)" }}>PERFORMANCE</div>
+                      <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>
+                        {streamedStages.performance.execution_time_ms != null ? `${streamedStages.performance.execution_time_ms.toFixed(1)}ms` : "—"}
+                        {" · "}{streamedStages.performance.time_complexity || "—"}
+                      </div>
+                    </div>
+                  )}
+                  {streamedStages.optimization && (
+                    <div className="result-card" style={{ animation: "fadeIn 0.3s ease" }}>
+                      <div style={{ fontSize: 10, color: "var(--accent-cyan)", marginBottom: 4, fontFamily: "var(--font-mono)" }}>OPTIMIZER</div>
+                      <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>
+                        {streamedStages.optimization.changes_made?.length ?? 0} changes
+                      </div>
+                    </div>
+                  )}
+                  {streamedStages.validation && (
+                    <div className="result-card" style={{ animation: "fadeIn 0.3s ease" }}>
+                      <div style={{ fontSize: 10, color: "var(--accent-cyan)", marginBottom: 4, fontFamily: "var(--font-mono)" }}>VALIDATION</div>
+                      <div style={{ fontSize: 11 }}>
+                        <span style={{ color: streamedStages.validation.status === "approved" ? "var(--success)" : "var(--danger)", fontWeight: 600, textTransform: "uppercase" }}>
+                          {streamedStages.validation.status}
+                        </span>
+                        {streamedStages.validation.speedup_percentage != null &&
+                          <span style={{ color: "var(--text-secondary)", marginLeft: 8 }}>+{streamedStages.validation.speedup_percentage.toFixed(1)}% faster</span>}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 

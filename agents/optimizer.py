@@ -1,7 +1,7 @@
 import json
 import re
 from openai import OpenAI
-from core.schemas import UserInput, BugReport, PerformanceReport, OptimizationResult
+from core.schemas import UserInput, BugReport, PerformanceReport, OptimizationResult, SecurityReport
 from core.prompts import OPTIMIZER_PROMPT
 from core.config import OPENAI_API_KEY
 
@@ -21,6 +21,7 @@ def optimize_code(
     user_input: UserInput,
     bug_report: BugReport,
     performance_report: PerformanceReport,
+    security_report: SecurityReport = None,
     feedback: str = None,
 ) -> OptimizationResult:
     # Input validation
@@ -38,8 +39,16 @@ def optimize_code(
             expected_improvement="N/A",
         )
 
+    if security_report and security_report.issues:
+        sec_lines = "; ".join(
+            f"{iss.severity.upper()}: {iss.description}" for iss in security_report.issues
+        )
+    else:
+        sec_lines = "none detected"
+
     prompt = OPTIMIZER_PROMPT.format(
         original_code=user_input.source_code,
+        security_issues=sec_lines,
         bug_summary=bug_report.summary,
         performance_bottlenecks=", ".join(performance_report.bottlenecks) if performance_report.bottlenecks else "none detected",
     )

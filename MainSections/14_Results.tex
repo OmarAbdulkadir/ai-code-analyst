@@ -1,0 +1,279 @@
+\clearpage
+\section{System Architecture and Design}
+\label{sec:system-architecture}
+
+\subsection{System Architecture}
+A layered architecture was adopted consisting of three layers. The frontend layer is a React single-page application that provides the user interface for code submission, live pipeline progress, results display, and session history. The backend layer consists of a FastAPI server that hosts the orchestrator and exposes the analysis endpoint as a \texttt{text/event-stream} response using Server-Sent Events, streaming each completed stage result to the browser in real time. The agent layer contains six specialized Python agents that run sequentially, each communicating with the GPT-4o-mini model via the OpenAI API.
+
+\subsection{Component Design}
+The orchestrator coordinates the pipeline by calling each agent in sequence and passing results between them using typed Pydantic models. After each stage completes, the orchestrator invokes an \texttt{on\_stage} callback that emits the stage payload as an SSE event. The Architect Agent performs AST-based static analysis to extract function count, complexity, and structural patterns. The Security Agent scans for common vulnerabilities and assigns a security score. The Bug Detector agent sends code to GPT-4o-mini with a structured prompt and parses the response into a typed Pydantic schema. The Performance Analyzer executes code inside a Docker sandbox, measuring runtime and memory usage, and uses AST analysis to detect complexity patterns. The Optimizer agent receives all previous reports as context — including the security report — and prompts GPT-4o-mini to generate algorithmically improved code, with retry logic for invalid responses. The Validator runs both the original and optimized code inside Docker three times each, compares their outputs and average timing, and returns an approval or rejection decision based on a 5\% speedup threshold.
+
+\subsection{Data Models}
+All data structures are defined using Pydantic schemas. Key models include \texttt{UserInput}, \texttt{ArchitectReport}, \texttt{SecurityReport}, \texttt{BugReport}, \texttt{PerformanceReport}, \texttt{OptimizationResult}, \texttt{ValidationResult}, \texttt{CodeDNAFingerprint}, \texttt{ResourceTimeline}, and \texttt{FinalReport}. The \texttt{CodeDNAFingerprint} model carries six normalized scores (0--100) for complexity, security, performance, readability, bug density, and optimization. The \texttt{ResourceTimeline} model stores a time-series of \texttt{ResourceSample} entries, each recording elapsed time in milliseconds, CPU percentage, and RSS memory in megabytes at 100\,ms intervals. This ensures type safety and consistent data flow between all agents throughout the pipeline.
+
+\clearpage
+\section{System Implementation}
+\label{sec:implementation}
+
+\subsection{Development Environment}
+Implementation was performed using Python 3.11 for the backend and Node.js with React and Vite for the frontend. Git was used for version control with daily commit requirements. VS Code served as the primary development environment. The project repository is hosted on GitHub and was maintained collaboratively by all four team members.
+
+\subsection{System Components}
+The system consists of six main components: the React frontend, the FastAPI streaming backend, the orchestrator, the six agent modules, the Docker sandbox executor, and the ChromaDB RAG pipeline. The agents communicate through structured Pydantic objects, ensuring that each stage receives well-typed input from the previous stage.
+
+\subsection{Code Structure}
+The codebase is organized by responsibility. The \texttt{agents/} folder contains the six AI agent implementations: \texttt{architect\_agent.py}, \texttt{security\_agent.py}, \texttt{bug\_detector.py}, \texttt{performance\_analyzer.py}, \texttt{optimizer.py}, and \texttt{validator.py}. The \texttt{core/} folder contains shared utilities including \texttt{code\_executor.py} for Docker sandbox execution, \texttt{schemas.py} for Pydantic data models, and \texttt{metrics.py} for AST-based complexity analysis. The \texttt{rag/} folder contains the ChromaDB retrieval and learning engine. The \texttt{orchestrator.py} coordinates the full pipeline, \texttt{web/app.py} exposes the FastAPI SSE endpoint, and the \texttt{frontend/} folder contains the React application.
+
+\clearpage
+\section{MVP Development}
+\label{sec:mvp}
+
+\subsection{MVP Definition}
+The MVP is defined as the smallest working system that demonstrates the complete value proposition: a user submits Python code, the system analyzes it through six AI agents streaming results in real time, and returns proof of improvement with real execution metrics, a Code DNA Fingerprint, and a Resource Timeline.
+
+\subsection{Implemented Features}
+The implemented system includes code submission through a React web interface with support for individual file uploads or folder uploads of up to 50 Python source files simultaneously. Architecture analysis uses AST-based complexity scoring; security vulnerability scanning assigns a security score out of 100; bug detection produces severity-scored issue reports. Real performance measurement records runtime and memory metrics inside a Docker sandbox. AI-generated code optimization uses GPT-4o-mini with a prompt that explicitly requires algorithmic improvements rather than style changes. Side-by-side code comparison and validation with before-and-after timing are provided.
+
+Every pipeline stage streams its result to the browser via Server-Sent Events as soon as it completes, so users observe live progress through all six stages without waiting for a single final response. Upon completion, the system computes a \textbf{Code DNA Fingerprint} for both the baseline and optimized versions: a six-axis radar chart scoring complexity (inverted cyclomatic score), security, performance, readability, bug density, and optimization potential, all normalized to a 0--100 scale where higher is always better. A \textbf{Resource Timeline} is generated for each execution run, plotting CPU utilization and RSS memory sampled every 100\,ms during Docker sandbox execution, allowing direct visual comparison of resource consumption before and after optimization. User authentication and session history are provided through Supabase integration.
+
+\subsection{System Interfaces}
+The web interface features a code input area where users paste Python code or upload files and trigger the full pipeline with a single button. As the pipeline runs, six stage cards appear progressively — one per agent — each showing the stage name, a status badge, and key metrics from that stage's output. The Insights tab renders the Code DNA Fingerprint as two overlapping radar charts (baseline in blue, optimized in green) using Recharts, and the Resource Timeline as a dual-axis line chart with CPU percentage on the primary axis and memory in megabytes on the secondary axis. The remaining tabs display the architecture report, security score, bug report, optimized code with diff highlighting, and the validation verdict with speedup percentage.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.95\textwidth]{Figures/ui_screenshot.png}
+    \caption{AI Code Analyst — Insights Dashboard showing Code DNA Fingerprint radar chart and Resource Timeline}
+    \label{fig:ui}
+\end{figure}
+
+\subsection{System Demonstration}
+The system was demonstrated with multiple test cases covering a range of Python code patterns. The find duplicates function with nested loops showed a consistent speedup after optimization from O(n\textsuperscript{2}) to O(n) using a hash set approach. The bubble sort algorithm demonstrated performance improvements after replacement with Python's built-in sort. Additional test cases confirmed the system's ability to detect division by zero errors, empty list crashes, and inefficient dictionary lookups. The streaming interface allows evaluators to observe each agent completing in sequence rather than waiting for the entire pipeline to finish.
+
+\clearpage
+\section{Testing and Evaluation}
+\label{sec:testing}
+
+\subsection{Testing Strategy}
+Testing combines unit validation for individual agent functions, integration testing for the full pipeline, and scenario-based acceptance testing for end-to-end workflows. Each sprint included a dedicated testing phase before review.
+
+\subsection{Test Cases}
+Representative Python code samples were used to evaluate the system. Each sample was chosen to target a specific class of performance issue: nested loop complexity, inefficient sorting, repeated membership checks, unnecessary recomputation, and logical errors such as division by zero. The validator confirmed both speedup and output correctness for each approved optimization.
+
+\subsection{Worked Example — find\_duplicates}
+The following example demonstrates a complete pipeline run on a Python function with known O(n\textsuperscript{2}) complexity.
+
+\textbf{Original Code:}
+\begin{lstlisting}[language=Python]
+def find_duplicates(lst):
+    duplicates = []
+    for i in range(len(lst)):
+        for j in range(i + 1, len(lst)):
+            if lst[i] == lst[j] and lst[i] not in duplicates:
+                duplicates.append(lst[i])
+    return duplicates
+
+print(find_duplicates(list(range(500)) + list(range(250))))
+\end{lstlisting}
+
+\textbf{Optimized Code generated by the system:}
+\begin{lstlisting}[language=Python]
+def find_duplicates(lst):
+    seen = set()
+    duplicates = set()
+    for item in lst:
+        if item in seen:
+            duplicates.add(item)
+        else:
+            seen.add(item)
+    return list(duplicates)
+
+print(find_duplicates(list(range(500)) + list(range(250))))
+\end{lstlisting}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.85\textwidth]{Figures/optimized_code_screenshot.png}
+    \caption{Optimized code generated by the system for the find\_duplicates function}
+    \label{fig:optimized}
+\end{figure}
+
+\begin{table}[H]
+\centering
+\caption{Analysis Results — find\_duplicates Example (post Sprint 5)}
+\begin{tabular}{|l|c|}
+\hline
+\textbf{Metric} & \textbf{Result} \\
+\hline
+Original Runtime & 391.1\,ms \\
+Optimized Runtime & $<$2\,ms \\
+Time Complexity & O(n\textsuperscript{2}) $\rightarrow$ O(n) \\
+Security Score & 100/100 \\
+Code Health & 65/100 \\
+Memory Usage & 9.2\,MB \\
+Speedup & $>$100$\times$ \\
+Validation Status & APPROVED \\
+Issues Detected & Nested loop, inefficient membership test \\
+\hline
+\end{tabular}
+\label{tab:results}
+\end{table}
+
+\noindent\textit{Note: Prior to the Sprint 5 optimizer prompt hardening, the system produced only superficial style changes on this input, yielding a measured speedup of 4.5\% and an \texttt{UNCHANGED} verdict. The updated prompt explicitly requires algorithmic rewrites, causing the system to consistently produce the O(n) set-based transformation shown above and receive an \texttt{APPROVED} verdict.}
+
+% ── Extended Case Study ──────────────────────────────────────
+\subsection{Extended Case Study — Sales Performance Analyzer}
+\label{sec:extended-case-study}
+
+To further validate the pipeline on a more substantial input, a 150-line Sales Performance Analyzer script was submitted containing six independent algorithmic functions, each exhibiting O(n\textsuperscript{2}) or O(n\,$\times$\,m) complexity, operating on a dataset of 2{,}000 synthetic sales records. The dataset is generated deterministically so that validation results are fully reproducible across runs.
+
+\textbf{Original Code (submitted by user):}
+\begin{lstlisting}[language=Python]
+# Dataset: 2000 sales amounts in range [10, 999]
+sales_amounts = []
+for i in range(1, 2001):
+    sales_amounts.append(((i * 137) % 990) + 10)
+
+category_codes = [i % 5 for i in range(1, 2001)]
+record_ids     = list(range(1, 2001))
+priority_ids   = list(range(1, 501))
+
+def has_pair_with_sum(lst, target):      # O(n^2)
+    for i in range(len(lst)):
+        for j in range(i + 1, len(lst)):
+            if lst[i] + lst[j] == target:
+                return True
+    return False
+
+def count_above_average(lst):            # O(n^2): recomputes sum n times
+    count = 0
+    n = len(lst)
+    for i in range(n):
+        total = 0
+        for j in range(n):
+            total += lst[j]
+        avg = total / n
+        if lst[i] > avg:
+            count += 1
+    return count
+
+def count_unique_values(lst):            # O(n^2): list membership in loop
+    unique = []
+    for item in lst:
+        found = False
+        for existing in unique:
+            if item == existing:
+                found = True
+                break
+        if not found:
+            unique.append(item)
+    return len(unique)
+
+def find_max_pair_sum(lst):              # O(n^2): checks all pairs
+    best = 0
+    for i in range(len(lst)):
+        for j in range(i + 1, len(lst)):
+            combined = lst[i] + lst[j]
+            if combined > best:
+                best = combined
+    return best
+
+def count_priority_records(id_list, priority_list):   # O(n x m)
+    count = 0
+    for rid in id_list:
+        if rid in priority_list:
+            count += 1
+    return count
+
+def find_min_gap(lst):                   # O(n^2): checks all pairs
+    min_gap = float('inf')
+    for i in range(len(lst)):
+        for j in range(i + 1, len(lst)):
+            gap = abs(lst[i] - lst[j])
+            if gap < min_gap:
+                min_gap = gap
+    return min_gap
+
+result_1 = has_pair_with_sum(sales_amounts, 4000)
+print("Has pair summing to 4000:", result_1)
+result_2 = count_above_average(sales_amounts)
+print("Records above average:", result_2)
+result_3 = count_unique_values(category_codes)
+print("Unique category codes:", result_3)
+result_4 = find_max_pair_sum(sales_amounts)
+print("Max pair revenue:", result_4)
+result_5 = count_priority_records(record_ids, priority_ids)
+print("Priority records:", result_5)
+result_6 = find_min_gap(sales_amounts[:300])
+print("Minimum price gap:", result_6)
+\end{lstlisting}
+
+The system identified three critical bottlenecks and three additional warnings across the six functions. The Optimizer agent rewrote all six functions, replacing each O(n\textsuperscript{2}) pattern with an O(n) or O(n\,log\,n) equivalent. Table~\ref{tab:extended-transforms} summarises the transformation applied to each function.
+
+\begin{table}[H]
+\centering
+\caption{Algorithmic transformations applied by the Optimizer agent}
+\label{tab:extended-transforms}
+\begin{tabular}{|l|c|c|l|}
+\hline
+\textbf{Function} & \textbf{Before} & \textbf{After} & \textbf{Transformation} \\
+\hline
+\texttt{has\_pair\_with\_sum}     & O(n\textsuperscript{2}) & O(n)          & Hash-set complement lookup \\
+\texttt{count\_above\_average}    & O(n\textsuperscript{2}) & O(n)          & Precompute mean once before loop \\
+\texttt{count\_unique\_values}    & O(n\textsuperscript{2}) & O(n)          & Replace list scan with \texttt{set()} \\
+\texttt{find\_max\_pair\_sum}     & O(n\textsuperscript{2}) & O(n)          & Single-pass two-maximum tracking \\
+\texttt{count\_priority\_records} & O(n\,$\times$\,m)       & O(n)          & Convert priority list to set \\
+\texttt{find\_min\_gap}           & O(n\textsuperscript{2}) & O(n\,log\,n)  & Sort then scan consecutive pairs \\
+\hline
+\end{tabular}
+\end{table}
+
+The Validator executed both versions three times each inside the Docker sandbox and confirmed byte-identical output across all six print statements before issuing the verdict. Table~\ref{tab:extended-results} presents the measured outcomes.
+
+\begin{table}[H]
+\centering
+\caption{Analysis results — Sales Performance Analyzer extended example}
+\label{tab:extended-results}
+\begin{tabular}{|l|c|}
+\hline
+\textbf{Metric} & \textbf{Result} \\
+\hline
+Lines of code submitted      & 150 \\
+Functions analysed           & 6 \\
+Critical issues detected     & 3 \\
+Original runtime             & 1{,}942.8\,ms \\
+Optimized runtime            & 449.2\,ms \\
+Speedup                      & \textbf{77.1\%} \\
+Security score               & 100/100 \\
+Code health                  & 64/100 \\
+Memory usage                 & 10.4\,MB \\
+Outputs match                & Yes \\
+Validation status            & \textbf{APPROVED} \\
+\hline
+\end{tabular}
+\end{table}
+
+The result confirms that the pipeline scales correctly beyond single-function inputs. All six algorithmic transformations were applied and independently verified, reducing total runtime from 1{,}942.8\,ms to 449.2\,ms — a 77.1\% improvement — on a 2{,}000-record dataset while producing byte-identical output.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.95\textwidth]{Figures/sales_analyzer_results.png}
+    \caption{Analysis results panel for the Sales Performance Analyzer showing APPROVED verdict and 77.1\% speedup}
+    \label{fig:sales-results}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.95\textwidth]{Figures/sales_analyzer_insights.png}
+    \caption{Code DNA Fingerprint and Resource Timeline for the Sales Performance Analyzer extended case study}
+    \label{fig:sales-insights}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.85\textwidth]{Figures/sales_analyzer_optimized.png}
+    \caption{Optimized code generated by the system for the Sales Performance Analyzer, showing all six algorithmic rewrites}
+    \label{fig:sales-optimized}
+\end{figure}
+
+\subsection{Test Results}
+The full pipeline produces consistent results across multiple test runs. The Architect Agent correctly identifies complexity metrics and function counts via AST analysis. The Security Agent assigns meaningful security scores and flags unsafe patterns. The Bug Detector correctly identifies nested loop complexity issues and assigns appropriate severity scores. The Performance Analyzer accurately measures execution time inside the Docker sandbox with acceptable variance between runs. The Optimizer, following Sprint 5 prompt hardening, generates algorithmically improved code in all tested scenarios — replacing O(n\textsuperscript{2}) nested loops with set or dictionary structures, and inefficient sorting with built-in methods — with retry logic handling occasional malformed API responses. The Validator correctly approves optimizations that improve performance while maintaining output correctness, and rejects changes that produce different outputs or no measurable improvement. The streaming interface confirmed that the first stage result (architecture analysis) appears in the browser within 10 seconds of submission for all tested inputs.

@@ -56,34 +56,49 @@ def optimize_code(
     if feedback:
         prompt += f"\n\nPREVIOUS ATTEMPT FAILED: {feedback}\nAdjust your strategy accordingly."
 
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "user", "content": prompt}],
-    )
-
-    text = _clean_json(response.choices[0].message.content)
-
-    try:
-        data = json.loads(text)
-    except json.JSONDecodeError:
-        # Retry once with explicit instruction to return clean JSON
-        retry_prompt = prompt + "\n\nIMPORTANT: Your response must be valid JSON only. No triple quotes inside string values — use single quotes or escape them."
-        retry_response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role": "user", "content": retry_prompt}],
+    def _call_model(p: str) -> dict | None:
+        """Call the model and parse JSON. Returns dict or None on failure."""
+        r = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[{"role": "user", "content": p}],
         )
-        text = _clean_json(retry_response.choices[0].message.content)
+        raw = _clean_json(r.choices[0].message.content)
         try:
-            data = json.loads(text)
+            return json.loads(raw)
         except json.JSONDecodeError:
-            return OptimizationResult(
-                optimized_code=user_input.source_code,
-                changes_made=["Could not parse optimizer response. Returning original code."],
-                expected_improvement="Unknown",
-            )
+            return None
+
+    data = _call_model(prompt)
+
+    # Retry 1: JSON parse failed
+    if data is None:
+        json_fix = prompt + "\n\nCRITICAL: Return ONLY raw JSON. No markdown. No triple quotes inside string values — use single quotes or \\n escapes."
+        data = _call_model(json_fix)
+
+    if data is None:
+        return OptimizationResult(
+            optimized_code=user_input.source_code,
+            changes_made=["Could not parse optimizer response. Returning original code."],
+            expected_improvement="Unknown",
+        )
+
+    optimized = data.get("optimized_code", user_input.source_code)
+
+    # Retry 2: Model returned the original code unchanged — force algorithmic rewrite
+    if optimized.strip() == user_input.source_code.strip() or not data.get("changes_made"):
+        force_prompt = (
+            prompt
+            + "\n\nYOU RETURNED THE ORIGINAL CODE UNCHANGED. This is unacceptable."
+            + "\nYou MUST rewrite every nested for-loop using sets, dicts, or built-in functions."
+            + "\nDo NOT return the same code. Make real algorithmic changes now."
+        )
+        data2 = _call_model(force_prompt)
+        if data2 and data2.get("optimized_code", "").strip() != user_input.source_code.strip():
+            data = data2
+            optimized = data.get("optimized_code", optimized)
 
     return OptimizationResult(
-        optimized_code=data.get("optimized_code", user_input.source_code),
+        optimized_code=optimized,
         changes_made=data.get("changes_made", []),
         expected_improvement=data.get("expected_improvement", "No improvement estimated."),
     )

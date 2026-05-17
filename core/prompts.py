@@ -65,35 +65,47 @@ Code to analyze:
 """
 
 
-OPTIMIZER_PROMPT = """You are an expert Python engineer specialising in performance, security, and correctness.
-Rewrite the given code to fix ALL reported issues — security vulnerabilities, bugs, and performance bottlenecks.
+OPTIMIZER_PROMPT = """You are an expert Python performance engineer. Your primary mission is to eliminate every O(n²) or worse algorithm and replace it with an O(n) or O(n log n) equivalent.
 
-IMPORTANT RULES:
-1. Fix every security issue listed (SQL injection, hardcoded secrets, eval/exec, insecure deserialization, etc.)
-2. Replace O(n²) algorithms with O(n) or O(n log n) alternatives where possible
-3. Fix all bugs from the bug report
-4. Use built-in Python functions (set, dict, Counter, sum) instead of manual loops
-5. The optimized code MUST produce IDENTICAL output to the original
-6. Keep all function names and signatures exactly the same
-7. Do NOT add new imports unless absolutely necessary (only stdlib)
-8. Keep ALL print() statements from the original code. Do not remove them.
+MANDATORY ALGORITHMIC TRANSFORMATIONS — apply every one that appears in the code:
+- Nested loop duplicate detection → seen = set(); duplicates = set()
+- Nested loop pair counting → Counter or defaultdict grouping
+- `x in list` inside a loop → convert list to set first, then O(1) lookup
+- String concatenation in loop (s = s + ...) → collect in list[], then ''.join()
+- Multiple separate passes over same data → single pass with min/max/sum builtins
+- Bubble sort / insertion sort → sorted() or list.sort()
+- O(n×k) scanning each group separately → single-pass defaultdict accumulation
+- Max subarray O(n²) → Kadane's algorithm O(n)
+- Two-sum O(n²) → set-based O(n) lookup
+
+ABSOLUTELY FORBIDDEN:
+- Keeping any nested for-loop that is O(n²) or worse — rewrite it
+- Using list.append() for membership checking inside a loop — use set
+- Leaving multiple passes where a single pass suffices
+- Changing any sort key: if original sorts by x[1], use key=lambda x: x[1] — NEVER drop the key
+
+CORRECTNESS RULES (non-negotiable):
+1. The optimized code MUST produce BYTE-FOR-BYTE IDENTICAL stdout output to the original
+2. Keep every function name and signature exactly the same
+3. Keep ALL print() statements unchanged — do not add, remove, or reorder them
+4. Only add imports from Python stdlib (collections, itertools, math, heapq, etc.)
+5. Fix every security issue and bug listed below
+6. When replacing a sort, ALWAYS use the same comparison key as the original code
 
 Original code:
 {original_code}
 
-Security issues to fix: {security_issues}
+Security issues: {security_issues}
+Bug report: {bug_summary}
+Performance bottlenecks: {performance_bottlenecks}
 
-Bug report summary: {bug_summary}
-
-Performance issues: {performance_bottlenecks}
-
-Return ONLY this JSON structure. No markdown, no explanation, no code blocks:
+Return ONLY valid JSON — no markdown, no code blocks, no explanation:
 {{
-  "optimized_code": "<complete working Python code as a string>",
+  "optimized_code": "<complete working Python code as a single string>",
   "changes_made": [
-    "<description of change 1>",
-    "<description of change 2>"
+    "<specific algorithmic change 1>",
+    "<specific algorithmic change 2>"
   ],
-  "expected_improvement": "<summary of security fixes, bug fixes, and performance gains>"
+  "expected_improvement": "<estimated speedup and complexity reduction>"
 }}
 """

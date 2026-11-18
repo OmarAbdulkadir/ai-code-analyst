@@ -1,4 +1,4 @@
-# 🤖 Autonomous AI Code Performance & Debugging Analyst
+#  Autonomous AI Code Performance & Debugging Analyst
 
 A multi-agent AI system that analyzes source code for bugs,
 performance issues, and suggests validated optimizations.
